@@ -1,0 +1,98 @@
+<idea-plugin>
+    <id>com.clauditor</id>
+    <name>Clauditor</name>
+    <vendor url="https://github.com/bdkent/clauditor">bdkent</vendor>
+
+    <description><![CDATA[
+    <p>Clauditor brings Claude Code session management directly into your JetBrains IDE.</p>
+
+    <p>Features:</p>
+    <ul>
+        <li>Browse and search all Claude Code sessions for the current project</li>
+        <li>Open session transcripts in a rich editor tab with syntax-highlighted tool calls</li>
+        <li>Resume any session in an embedded terminal with one click</li>
+        <li>Monitor active Claude Code status (running, idle, waiting for input)</li>
+        <li>Inspect CLAUDE.md context files loaded by Claude Code</li>
+    </ul>
+
+    <p>Requires Claude Code CLI to be installed and available on your PATH.</p>
+    ]]></description>
+
+    <change-notes><![CDATA[
+    <p>0.1.0 — Initial release</p>
+    <ul>
+        <li>Session browser with search and sort</li>
+        <li>Session transcript viewer</li>
+        <li>One-click resume in terminal</li>
+        <li>Live status monitoring</li>
+        <li>Context file inspector</li>
+    </ul>
+    ]]></change-notes>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>org.jetbrains.plugins.terminal</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow
+            id="Sessions"
+            anchor="right"
+            icon="/icons/sessions.svg"
+            factoryClass="com.clauditor.toolwindow.ClaudeSessionsToolWindowFactory"
+            canCloseContents="true"
+        />
+
+        <toolWindow
+            id="Status"
+            anchor="right"
+            secondary="true"
+            icon="/icons/status.svg"
+            factoryClass="com.clauditor.toolwindow.ClaudeStatusBarFactory"
+            canCloseContents="false"
+        />
+
+        <projectService
+            serviceImplementation="com.clauditor.services.ClaudeSessionService"
+        />
+
+        <projectService
+            serviceImplementation="com.clauditor.services.ClaudeTerminalService"
+        />
+
+        <projectService
+            serviceImplementation="com.clauditor.services.ClaudeStatusService"
+        />
+
+        <projectService
+            serviceImplementation="com.clauditor.services.OpenSessionsPersistence"
+        />
+
+        <projectService
+            serviceImplementation="com.clauditor.services.ClaudeContextService"
+        />
+
+        <toolWindow
+            id="Context"
+            anchor="right"
+            icon="/icons/context.svg"
+            factoryClass="com.clauditor.toolwindow.ClaudeContextToolWindowFactory"
+            canCloseContents="false"
+        />
+
+        <fileEditorProvider
+            implementation="com.clauditor.editor.ClaudeSessionEditorProvider"
+        />
+
+        <editorTabTitleProvider
+            implementation="com.clauditor.editor.ClaudeSessionTabTitleProvider"
+        />
+
+        <fileIconProvider
+            implementation="com.clauditor.editor.ClaudeSessionIconProvider"
+        />
+
+        <notificationGroup
+            id="Clauditor"
+            displayType="NONE"
+        />
+    </extensions>
+</idea-plugin>

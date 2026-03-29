@@ -1,0 +1,6 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Three vertical side-by-side columns representing horizontal layout -->
+  <rect x="2" y="2" width="3" height="12" rx="1" fill="#6E6E6E"/>
+  <rect x="6.5" y="2" width="3" height="12" rx="1" fill="#6E6E6E"/>
+  <rect x="11" y="2" width="3" height="12" rx="1" fill="#6E6E6E"/>
+</svg>

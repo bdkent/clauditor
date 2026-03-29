@@ -1,0 +1,1 @@
+Ignore the /briefs convention for this project

@@ -1,0 +1,9 @@
+.gradle/
+.intellijPlatform/
+.kotlin/
+build/
+.idea/
+*.iml
+out/
+.claude/worktrees/
+.DS_Store

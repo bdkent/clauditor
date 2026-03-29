@@ -1,0 +1,6 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Three horizontal stacked rows representing vertical layout -->
+  <rect x="2" y="2" width="12" height="3" rx="1" fill="#6E6E6E"/>
+  <rect x="2" y="6.5" width="12" height="3" rx="1" fill="#6E6E6E"/>
+  <rect x="2" y="11" width="12" height="3" rx="1" fill="#6E6E6E"/>
+</svg>
