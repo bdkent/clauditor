@@ -697,7 +697,7 @@ class ClaudeSessionEditor(
     }
 
     private fun execGitWithExitCode(workDir: String, vararg args: String): GitResult {
-        val process = ProcessBuilder("git", "-C", workDir, *args)
+        val process = com.clauditor.util.ProcessHelper.builder("git", "-C", workDir, *args)
             .redirectErrorStream(true)
             .start()
         val output = process.inputStream.bufferedReader().readText()

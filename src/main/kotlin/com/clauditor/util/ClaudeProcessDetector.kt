@@ -9,7 +9,7 @@ object ClaudeProcessDetector {
     /** Returns the set of session IDs currently running as live `claude --resume` processes. */
     fun getActiveSessionIds(): Set<String> {
         return try {
-            val process = ProcessBuilder("ps", "-A", "-o", "args").start()
+            val process = ProcessHelper.builder("ps", "-A", "-o", "args").start()
             val output = process.inputStream.bufferedReader().readText()
             process.waitFor()
             SESSION_ID_REGEX.findAll(output).map { it.groupValues[1] }.toSet()

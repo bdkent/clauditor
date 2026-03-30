@@ -94,7 +94,7 @@ class ClaudeTerminalService(private val project: Project) {
         onActiveChanged: ((Boolean) -> Unit)? = null,
         onUserInput: (() -> Unit)? = null
     ): TerminalSession {
-        val env = System.getenv().toMutableMap()
+        val env = com.clauditor.util.ProcessHelper.augmentedEnv()
         env["TERM"] = "xterm-256color"
 
         val effectiveWorkingDir = workingDir ?: project.basePath ?: System.getProperty("user.home")
@@ -137,7 +137,13 @@ class ClaudeTerminalService(private val project: Project) {
         widget.start(connector)
 
         Disposer.register(parent, Disposable {
-            if (ptyProcess.isAlive) ptyProcess.destroy()
+            if (ptyProcess.isAlive) {
+                ptyProcess.destroy()
+                // Force kill if it doesn't exit promptly (e.g. during tab detach)
+                if (!ptyProcess.waitFor(2, TimeUnit.SECONDS)) {
+                    ptyProcess.destroyForcibly()
+                }
+            }
         })
 
         if (onReady != null) {

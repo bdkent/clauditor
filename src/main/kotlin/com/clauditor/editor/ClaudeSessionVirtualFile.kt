@@ -2,6 +2,7 @@ package com.clauditor.editor
 
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.util.IconLoader
+import com.intellij.openapi.vfs.VirtualFileSystem
 import com.intellij.testFramework.LightVirtualFile
 import javax.swing.Icon
 
@@ -23,6 +24,9 @@ class ClaudeSessionVirtualFile(
     val newWorktreeName: String? = null
 ) : LightVirtualFile(name, ClaudeSessionFileType, "") {
 
+    /** Stable key used for VFS URL resolution so tabs survive drag-and-drop. */
+    val sessionKey: String = sessionId ?: forkFrom ?: newWorktreeName ?: "new-${System.nanoTime()}"
+
     var baseName: String = name
     var workingDir: String? = null
     var isWorktreeSession: Boolean = newWorktreeName != null
@@ -35,6 +39,20 @@ class ClaudeSessionVirtualFile(
     init {
         isWritable = false
     }
+
+    override fun getFileSystem(): VirtualFileSystem = ClaudeSessionFileSystem.getInstance()
+
+    override fun getPath(): String = sessionKey
+
+    override fun getUrl(): String = "${ClaudeSessionFileSystem.PROTOCOL}://$sessionKey"
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is ClaudeSessionVirtualFile) return false
+        return sessionKey == other.sessionKey
+    }
+
+    override fun hashCode(): Int = sessionKey.hashCode()
 
     fun computeTabTitle(): String = when {
         notifyState == "permission_prompt" -> "$baseName \u26A0"  // ⚠ needs permission

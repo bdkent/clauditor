@@ -36,9 +36,18 @@
         <toolWindow
             id="Sessions"
             anchor="right"
+            order="first"
             icon="/icons/sessions.svg"
             factoryClass="com.clauditor.toolwindow.ClaudeSessionsToolWindowFactory"
             canCloseContents="true"
+        />
+
+        <toolWindow
+            id="Context"
+            anchor="right"
+            icon="/icons/context.svg"
+            factoryClass="com.clauditor.toolwindow.ClaudeContextToolWindowFactory"
+            canCloseContents="false"
         />
 
         <toolWindow
@@ -70,12 +79,9 @@
             serviceImplementation="com.clauditor.services.ClaudeContextService"
         />
 
-        <toolWindow
-            id="Context"
-            anchor="right"
-            icon="/icons/context.svg"
-            factoryClass="com.clauditor.toolwindow.ClaudeContextToolWindowFactory"
-            canCloseContents="false"
+        <virtualFileSystem
+            implementationClass="com.clauditor.editor.ClaudeSessionFileSystem"
+            key="claude-session"
         />
 
         <fileEditorProvider

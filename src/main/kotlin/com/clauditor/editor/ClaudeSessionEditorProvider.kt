@@ -14,7 +14,9 @@ class ClaudeSessionEditorProvider : FileEditorProvider, DumbAware {
     }
 
     override fun createEditor(project: Project, file: VirtualFile): FileEditor {
-        return ClaudeSessionEditor(project, file as ClaudeSessionVirtualFile)
+        val sessionFile = file as ClaudeSessionVirtualFile
+        ClaudeSessionFileSystem.getInstance().register(sessionFile)
+        return ClaudeSessionEditor(project, sessionFile)
     }
 
     override fun getEditorTypeId(): String = "clauditor-session"

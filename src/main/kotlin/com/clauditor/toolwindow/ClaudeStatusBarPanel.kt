@@ -175,7 +175,7 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
     private fun refreshAuth() {
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val proc = ProcessBuilder("claude", "auth", "status").start()
+                val proc = com.clauditor.util.ProcessHelper.builder("claude", "auth", "status").start()
                 val out = proc.inputStream.bufferedReader().readText()
                 proc.waitFor()
                 val obj = gson.fromJson(out, JsonObject::class.java)
@@ -210,7 +210,7 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val cmd = if (isLogout) arrayOf("claude", "logout") else arrayOf("claude", "login")
-                val proc = ProcessBuilder(*cmd).start()
+                val proc = com.clauditor.util.ProcessHelper.builder(*cmd).start()
                 proc.waitFor(120, java.util.concurrent.TimeUnit.SECONDS)
                 if (proc.isAlive) proc.destroyForcibly()
             } catch (_: Exception) {}
