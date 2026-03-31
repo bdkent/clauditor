@@ -1,5 +1,6 @@
 package com.clauditor.toolwindow
 
+import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.project.DumbAware
@@ -19,6 +20,8 @@ class ClaudeStatusBarFactory : ToolWindowFactory, DumbAware {
         toolWindow.contentManager.addContent(content)
 
         val toggleAction = object : AnAction(), DumbAware {
+            override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
             override fun actionPerformed(e: AnActionEvent) {
                 panel.toggleLayout()
             }

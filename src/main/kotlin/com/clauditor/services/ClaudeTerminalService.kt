@@ -126,8 +126,20 @@ class ClaudeTerminalService(private val project: Project) {
             .setDirectory(effectiveWorkingDir)
             .start()
 
-        val connector = if (onActiveChanged != null) {
-            ActivityMonitoringTtyConnector(ptyProcess, StandardCharsets.UTF_8, onActiveChanged = onActiveChanged, onUserInput = onUserInput)
+        // Wrap onActiveChanged to fire onReady on the first idle transition
+        val wrappedOnActiveChanged: ((Boolean) -> Unit)? = if (onActiveChanged != null || onReady != null) {
+            var readyFired = false
+            { active: Boolean ->
+                if (!active && !readyFired && onReady != null) {
+                    readyFired = true
+                    onReady(ptyProcess)
+                }
+                onActiveChanged?.invoke(active)
+            }
+        } else null
+
+        val connector = if (wrappedOnActiveChanged != null) {
+            ActivityMonitoringTtyConnector(ptyProcess, StandardCharsets.UTF_8, onActiveChanged = wrappedOnActiveChanged, onUserInput = onUserInput)
         } else {
             FilteringPtyConnector(ptyProcess, StandardCharsets.UTF_8)
         }
@@ -145,12 +157,6 @@ class ClaudeTerminalService(private val project: Project) {
                 }
             }
         })
-
-        if (onReady != null) {
-            @Suppress("UnstableApiUsage")
-            com.intellij.util.concurrency.AppExecutorUtil.getAppScheduledExecutorService()
-                .schedule({ onReady(ptyProcess) }, 800, TimeUnit.MILLISECONDS)
-        }
 
         return TerminalSession(widget, ptyProcess)
     }

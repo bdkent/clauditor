@@ -5,7 +5,7 @@ import java.nio.file.Path
 
 object ClaudePathEncoder {
 
-    fun encode(absolutePath: String): String = absolutePath.replace('/', '-').replace('.', '-')
+    fun encode(absolutePath: String): String = absolutePath.replace('/', '-')
 
     fun projectDir(projectBasePath: String): Path {
         val claudeHome = Path.of(System.getProperty("user.home"), ".claude")

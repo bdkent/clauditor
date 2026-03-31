@@ -136,11 +136,18 @@ class ClaudeSessionEditor(
         ptyProcess = session.process
         focusComponent = session.widget.preferredFocusableComponent
 
-        // Close the tab when the process exits (Ctrl+C, /exit, etc.)
-        session.process.onExit().thenAccept {
+        // Normal exit (0): close the tab. Abnormal exit: keep it open so the error is visible.
+        session.process.onExit().thenAccept { process ->
             ApplicationManager.getApplication().invokeLater {
-                if (!project.isDisposed) {
+                if (project.isDisposed) return@invokeLater
+                val code = process.exitValue()
+                if (code == 0) {
                     FileEditorManager.getInstance(project).closeFile(file)
+                } else {
+                    log.warn("Claude process exited with code $code for session ${file.sessionId}")
+                    file.isThinking = false
+                    file.notifyState = null
+                    refreshTabTitle()
                 }
             }
         }

@@ -211,7 +211,17 @@ class ClaudeSessionService(private val project: Project) : Disposable {
     }
 
     private fun loadSessions(): List<SessionDisplay> {
-        val basePath = project.basePath ?: return emptyList()
+        val basePath = project.basePath ?: run {
+            log.warn("Clauditor: project.basePath is null — cannot discover sessions")
+            return emptyList()
+        }
+        val projectDir = ClaudePathEncoder.projectDir(basePath)
+        val dirExists = Files.isDirectory(projectDir)
+        val jsonlCount = if (dirExists) {
+            try { Files.list(projectDir).use { s -> s.filter { it.toString().endsWith(".jsonl") }.count() } }
+            catch (_: Exception) { 0L }
+        } else 0L
+        log.info("Clauditor session discovery: basePath=$basePath projectDir=$projectDir exists=$dirExists jsonlFiles=$jsonlCount")
         val mainSessions = loadSessionsForPath(basePath, null)
         val wtSessions = try {
             ClaudePathEncoder.worktreeNames(basePath).flatMap { name ->
@@ -223,11 +233,13 @@ class ClaudeSessionService(private val project: Project) : Disposable {
 
     private fun loadSessionsForPath(basePath: String, worktreeName: String?): List<SessionDisplay> {
         val indexPath = ClaudePathEncoder.sessionsIndexPath(basePath)
-        return if (Files.exists(indexPath)) {
-            loadFromIndex(indexPath, basePath, worktreeName)
-        } else {
-            loadFromJsonlFiles(basePath, worktreeName)
+        if (Files.exists(indexPath)) {
+            val result = loadFromIndex(indexPath, basePath, worktreeName)
+            if (result.isNotEmpty()) return result
+            // Index exists but produced no results — fall back to JSONL scanning
+            log.warn("sessions-index.json returned 0 sessions, falling back to JSONL scan for $basePath")
         }
+        return loadFromJsonlFiles(basePath, worktreeName)
     }
 
     private fun loadFromIndex(indexPath: Path, basePath: String, worktreeName: String?): List<SessionDisplay> {
@@ -239,23 +251,28 @@ class ClaudeSessionService(private val project: Project) : Disposable {
             index.entries
                 .filter { !it.isSidechain }
                 .mapNotNull { entry ->
-                    val jsonlPath = projectDir.resolve("${entry.sessionId}.jsonl")
-                    if (!Files.exists(jsonlPath)) return@mapNotNull null
-                    SessionDisplay(
-                        sessionId = entry.sessionId,
-                        name = readCustomTitle(jsonlPath),
-                        firstPrompt = entry.firstPrompt,
-                        summary = entry.summary,
-                        messageCount = entry.messageCount,
-                        modified = parseInstant(entry.modified),
-                        gitBranch = entry.gitBranch,
-                        projectPath = entry.projectPath,
-                        worktreeName = worktreeName
-                    )
+                    try {
+                        val jsonlPath = projectDir.resolve("${entry.sessionId}.jsonl")
+                        if (!Files.exists(jsonlPath)) return@mapNotNull null
+                        SessionDisplay(
+                            sessionId = entry.sessionId,
+                            name = readCustomTitle(jsonlPath),
+                            firstPrompt = entry.firstPrompt,
+                            summary = entry.summary,
+                            messageCount = entry.messageCount,
+                            modified = parseInstant(entry.modified),
+                            gitBranch = entry.gitBranch,
+                            projectPath = entry.projectPath,
+                            worktreeName = worktreeName
+                        )
+                    } catch (e: Exception) {
+                        log.warn("Skipping session ${entry.sessionId}: ${e.message}")
+                        null
+                    }
                 }
                 .sortedByDescending { it.modified }
         } catch (e: Exception) {
-            log.error("Failed to load sessions index from $indexPath", e)
+            log.error("Failed to parse sessions-index.json at $indexPath: ${e.message}", e)
             emptyList()
         }
     }

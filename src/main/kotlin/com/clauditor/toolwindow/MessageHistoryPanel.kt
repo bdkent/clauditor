@@ -151,13 +151,15 @@ class MessageHistoryPanel(
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val textBuffer = widget.terminalTextBuffer
-                val historyLines = textBuffer.historyLinesCount
-                val screenLines = textBuffer.screenLinesCount
                 var found = 0
 
                 textBuffer.lock()
                 var targetRow: Int? = null
+                val historyLines: Int
+                val screenLines: Int
                 try {
+                    historyLines = textBuffer.historyLinesCount
+                    screenLines = textBuffer.screenLinesCount
                     for (row in -historyLines until screenLines) {
                         val lineText = textBuffer.getLine(row).getText().trim()
                         if (lineText.contains(searchKey)) {
@@ -181,8 +183,10 @@ class MessageHistoryPanel(
                     val sampleLines = mutableListOf<String>()
                     textBuffer.lock()
                     try {
-                        val start = -historyLines
-                        val end = minOf(start + 30, screenLines)
+                        val h = textBuffer.historyLinesCount
+                        val s = textBuffer.screenLinesCount
+                        val start = -h
+                        val end = minOf(start + 30, s)
                         for (row in start until end) {
                             val lt = textBuffer.getLine(row).getText()
                             sampleLines.add("  row=$row: [${lt.take(80)}]")

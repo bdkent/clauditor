@@ -175,13 +175,19 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
     private fun refreshAuth() {
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val proc = com.clauditor.util.ProcessHelper.builder("claude", "auth", "status").start()
+                val proc = com.clauditor.util.ProcessHelper.builder("claude", "auth", "status")
+                    .redirectErrorStream(true)
+                    .start()
                 val out = proc.inputStream.bufferedReader().readText()
                 proc.waitFor()
-                val obj = gson.fromJson(out, JsonObject::class.java)
-                val loggedIn = obj.get("loggedIn")?.asBoolean ?: false
-                val email = obj.get("email")?.asString ?: ""
-                val sub = obj.get("subscriptionType")?.asString ?: ""
+
+                // Output may contain non-JSON lines (warnings, prompts) — extract the JSON object
+                val jsonStr = out.substringAfter("{", "").let { if (it.isNotEmpty()) "{$it" else null }
+                    ?.substringBeforeLast("}")?.plus("}")
+                val obj = if (jsonStr != null) gson.fromJson(jsonStr, JsonObject::class.java) else null
+                val loggedIn = obj?.get("loggedIn")?.asBoolean ?: false
+                val email = obj?.get("email")?.asString ?: ""
+                val sub = obj?.get("subscriptionType")?.asString ?: ""
 
                 ApplicationManager.getApplication().invokeLater {
                     if (loggedIn) {
@@ -194,10 +200,15 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
                     }
                     authButton.isEnabled = true
                 }
-            } catch (_: Exception) {
+            } catch (e: java.io.IOException) {
                 ApplicationManager.getApplication().invokeLater {
                     authLabel.text = "claude CLI not found"
                     authButton.isEnabled = false
+                }
+            } catch (e: Exception) {
+                ApplicationManager.getApplication().invokeLater {
+                    authLabel.text = "auth check failed"
+                    authButton.isEnabled = true
                 }
             }
         }

@@ -35,8 +35,8 @@
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow
             id="Sessions"
-            anchor="right"
-            order="first"
+            anchor="left"
+            order="last"
             icon="/icons/sessions.svg"
             factoryClass="com.clauditor.toolwindow.ClaudeSessionsToolWindowFactory"
             canCloseContents="true"
