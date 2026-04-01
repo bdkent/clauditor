@@ -29,13 +29,17 @@ import com.intellij.util.ui.JBUI
 import com.pty4j.PtyProcess
 import java.awt.BorderLayout
 import java.awt.Color
+import java.awt.datatransfer.DataFlavor
+import java.awt.dnd.*
 import java.beans.PropertyChangeListener
+import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.swing.BorderFactory
 import javax.swing.JComponent
 import javax.swing.JPanel
 import com.clauditor.util.RoundedProgressBarUI
@@ -179,6 +183,10 @@ class ClaudeSessionEditor(
         contentPanel.add(contextBar, BorderLayout.SOUTH)
 
         loadingPanel.add(contentPanel, BorderLayout.CENTER)
+
+        // Drag-and-drop: accept files dropped onto the terminal
+        setupDropTarget(session.widget.component)
+
         loadingPanel.startLoading()
         AppExecutorUtil.getAppScheduledExecutorService()
             .schedule(::stopLoading, 5L, TimeUnit.SECONDS)
@@ -898,6 +906,52 @@ class ClaudeSessionEditor(
         Disposer.register(rootDisposable, Disposable { statusService.removeStatusListener(listener) })
 
         return combo
+    }
+
+    private fun setupDropTarget(component: JComponent) {
+        val highlightColor = JBUI.CurrentTheme.Focus.focusColor()
+        val highlightBorder = BorderFactory.createLineBorder(highlightColor, 2)
+        val originalBorder = component.border
+
+        DropTarget(component, DnDConstants.ACTION_COPY, object : DropTargetAdapter() {
+            override fun dragEnter(dtde: DropTargetDragEvent) {
+                if (dtde.transferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
+                    dtde.acceptDrag(DnDConstants.ACTION_COPY)
+                    component.border = highlightBorder
+                    component.repaint()
+                } else {
+                    dtde.rejectDrag()
+                }
+            }
+
+            override fun dragExit(dte: DropTargetEvent) {
+                component.border = originalBorder
+                component.repaint()
+            }
+
+            override fun drop(dtde: DropTargetDropEvent) {
+                component.border = originalBorder
+                component.repaint()
+
+                if (!dtde.transferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
+                    dtde.rejectDrop()
+                    return
+                }
+                dtde.acceptDrop(DnDConstants.ACTION_COPY)
+                try {
+                    @Suppress("UNCHECKED_CAST")
+                    val files = dtde.transferable.getTransferData(DataFlavor.javaFileListFlavor) as List<File>
+                    val paths = files.map { it.absolutePath }
+                    if (paths.isNotEmpty()) {
+                        sendToTerminal(paths.joinToString(" "))
+                    }
+                    dtde.dropComplete(true)
+                } catch (e: Exception) {
+                    log.warn("Failed to handle file drop", e)
+                    dtde.dropComplete(false)
+                }
+            }
+        })
     }
 
     fun sendToTerminal(text: String) {
