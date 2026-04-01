@@ -6,16 +6,44 @@
     <description><![CDATA[
     <p>Clauditor brings Claude Code session management directly into your JetBrains IDE.</p>
 
-    <p>Features:</p>
+    <p><b>Session Management</b></p>
     <ul>
-        <li>Browse and search all Claude Code sessions for the current project</li>
-        <li>Open session transcripts in a rich editor tab with syntax-highlighted tool calls</li>
-        <li>Resume any session in an embedded terminal with one click</li>
-        <li>Monitor active Claude Code status (running, idle, waiting for input)</li>
-        <li>Inspect CLAUDE.md context files loaded by Claude Code</li>
+        <li>Browse, search, resume, fork, and delete sessions from a dedicated tool window</li>
+        <li>Sessions open as editor tabs with embedded terminals — arrange them alongside source files</li>
+        <li>Open sessions persist across IDE restarts</li>
+        <li>Purge old sessions in bulk by age</li>
     </ul>
 
-    <p>Requires Claude Code CLI to be installed and available on your PATH.</p>
+    <p><b>External Session Detection</b></p>
+    <ul>
+        <li>Detects Claude sessions running in external terminals (iTerm, VS Code, etc.)</li>
+        <li>External sessions shown with distinct icon and grayed out in the session list</li>
+        <li>Tabs for externally-open sessions show an info panel with auto-resume when the external session closes</li>
+    </ul>
+
+    <p><b>Git Worktree Support</b></p>
+    <ul>
+        <li>Create isolated Claude sessions in git worktrees with their own branches</li>
+        <li>Worktree toolbar with commit, PR, rebase, and merge controls</li>
+    </ul>
+
+    <p><b>Live Status &amp; Context</b></p>
+    <ul>
+        <li>Tab indicators: thinking, idle, waiting for permission, compacting</li>
+        <li>Context usage progress bar and model info per session</li>
+        <li>Rate limit tracking and auth status in the Status panel</li>
+        <li>Browse and insert rules, agents, and skills from the Context panel</li>
+    </ul>
+
+    <p><b>Editor Integration</b></p>
+    <ul>
+        <li>Drag and drop files onto session tabs to insert their paths</li>
+        <li>Git toolbar with branch, change count, and session-aware diffing</li>
+        <li>Message history sidebar for navigating conversations</li>
+        <li>Model and effort switching from the session toolbar</li>
+    </ul>
+
+    <p>Requires Claude Code CLI installed and available on your PATH.</p>
     ]]></description>
 
     <change-notes><![CDATA[

@@ -19,7 +19,9 @@ Sessions open as virtual editor tabs — side by side with your source files, no
 - **Resume** any previous session with double-click
 - **Fork** a session to branch off from a conversation
 - **Rename** and **delete** sessions from the UI
+- **Purge** old sessions in bulk — enter a number of days and see a live count before deleting
 - **Restore** open sessions across IDE restarts
+- **Drag and drop** files (images, code, etc.) onto a session tab to insert their paths
 - Split, drag, and arrange session tabs just like any editor tab
 
 <!-- ![Session list](docs/screenshots/sessions.png) -->
@@ -44,6 +46,16 @@ Every session editor shows the git state of its working directory:
 - One-click commit of session-only changes
 
 <!-- ![Git toolbar](docs/screenshots/git-toolbar.png) -->
+
+### External Session Detection
+
+Clauditor detects Claude sessions running outside the IDE (iTerm, VS Code, other terminals) and shows them in the session list with a distinct indicator.
+
+- Sessions open externally show the **↗** icon and grayed-out text
+- If a persisted tab's session is open externally when the IDE restarts, the tab shows an info panel instead of conflicting with the external terminal
+- A **Resume** button auto-enables when the external session closes
+
+<!-- ![External session indicator](docs/screenshots/external-session.png) -->
 
 ### Live Status Monitoring
 
@@ -94,7 +106,7 @@ A collapsible sidebar in each session editor lists every user message in the con
 ### From source
 
 ```bash
-git clone https://github.com/anthropics/clauditor.git
+git clone https://github.com/bdkent/clauditor.git
 cd clauditor
 ./gradlew buildPlugin
 ```
