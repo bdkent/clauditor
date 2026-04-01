@@ -1,8 +1,10 @@
 # Clauditor
 
+[![Install from JetBrains Marketplace](https://img.shields.io/badge/JetBrains_Marketplace-Clauditor-blue?logo=jetbrains)](https://plugins.jetbrains.com/plugin/30981-clauditor)
+
 A JetBrains IDE plugin for managing [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions. Browse, resume, fork, and monitor Claude sessions directly from your editor — with built-in git worktree support.
 
-> **Status**: Early development (v0.1.0). Requires IntelliJ 2024.2+ and Claude CLI installed.
+> Requires IntelliJ 2024.2+ and Claude CLI installed.
 
 ![Clauditor overview](docs/screenshots/overview.png)
 
