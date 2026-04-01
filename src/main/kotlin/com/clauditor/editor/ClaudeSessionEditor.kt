@@ -731,12 +731,14 @@ class ClaudeSessionEditor(
     /** Parse the JSONL for Write/Edit tool uses with full operation details. */
     private fun getSessionFileOperations(): List<SessionFileOp> {
         val sessionId = file.sessionId ?: return emptyList()
-        val basePath = if (file.isWorktreeSession && file.workingDir != null) {
-            file.workingDir!!
+        val projectDir = if (file.isWorktreeSession && file.workingDir != null && project.basePath != null) {
+            // Extract worktree name from workingDir (last path component)
+            val wtName = java.nio.file.Path.of(file.workingDir!!).fileName.toString()
+            com.clauditor.util.ClaudePathEncoder.worktreeProjectDir(project.basePath!!, wtName)
         } else {
-            project.basePath ?: return emptyList()
+            com.clauditor.util.ClaudePathEncoder.projectDir(project.basePath ?: return emptyList())
         }
-        val jsonlPath = com.clauditor.util.ClaudePathEncoder.projectDir(basePath).resolve("$sessionId.jsonl")
+        val jsonlPath = projectDir.resolve("$sessionId.jsonl")
         if (!java.nio.file.Files.exists(jsonlPath)) return emptyList()
 
         val ops = mutableListOf<SessionFileOp>()

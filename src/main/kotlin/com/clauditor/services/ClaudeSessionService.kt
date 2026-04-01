@@ -67,13 +67,12 @@ class ClaudeSessionService(private val project: Project) : Disposable {
 
         // Find the session to determine if it's from a worktree
         val session = cachedSessions?.find { it.sessionId == sessionId }
-        val effectivePath = if (session?.worktreeName != null) {
-            ClaudePathEncoder.worktreeAbsolutePath(basePath, session.worktreeName)
+        val projectDir = if (session?.worktreeName != null) {
+            ClaudePathEncoder.worktreeProjectDir(basePath, session.worktreeName)
         } else {
-            basePath
+            ClaudePathEncoder.projectDir(basePath)
         }
 
-        val projectDir = ClaudePathEncoder.projectDir(effectivePath)
         val jsonlPath = projectDir.resolve("$sessionId.jsonl")
 
         try {
@@ -98,7 +97,7 @@ class ClaudeSessionService(private val project: Project) : Disposable {
         }
 
         // Remove from sessions-index.json so it doesn't linger
-        val indexPath = ClaudePathEncoder.sessionsIndexPath(effectivePath)
+        val indexPath = projectDir.resolve("sessions-index.json")
         if (Files.exists(indexPath)) {
             try {
                 val json = Files.readString(indexPath)
@@ -172,9 +171,7 @@ class ClaudeSessionService(private val project: Project) : Disposable {
         val dirsToCheck = mutableListOf(ClaudePathEncoder.projectDir(basePath))
         try {
             for (name in ClaudePathEncoder.worktreeNames(basePath)) {
-                dirsToCheck.add(ClaudePathEncoder.projectDir(
-                    ClaudePathEncoder.worktreeAbsolutePath(basePath, name)
-                ))
+                dirsToCheck.add(ClaudePathEncoder.worktreeProjectDir(basePath, name))
             }
         } catch (_: Exception) {}
 
@@ -231,31 +228,31 @@ class ClaudeSessionService(private val project: Project) : Disposable {
             catch (_: Exception) { 0L }
         } else 0L
         log.info("Clauditor session discovery: basePath=$basePath projectDir=$projectDir exists=$dirExists jsonlFiles=$jsonlCount")
-        val mainSessions = loadSessionsForPath(basePath, null)
+        val mainProjectDir = ClaudePathEncoder.projectDir(basePath)
+        val mainSessions = loadSessionsFromDir(mainProjectDir, null)
         val wtSessions = try {
             ClaudePathEncoder.worktreeNames(basePath).flatMap { name ->
-                loadSessionsForPath(ClaudePathEncoder.worktreeAbsolutePath(basePath, name), name)
+                val wtProjectDir = ClaudePathEncoder.worktreeProjectDir(basePath, name)
+                loadSessionsFromDir(wtProjectDir, name)
             }
         } catch (_: Exception) { emptyList() }
         return (mainSessions + wtSessions).sortedByDescending { it.modified }
     }
 
-    private fun loadSessionsForPath(basePath: String, worktreeName: String?): List<SessionDisplay> {
-        val indexPath = ClaudePathEncoder.sessionsIndexPath(basePath)
+    private fun loadSessionsFromDir(projectDir: Path, worktreeName: String?): List<SessionDisplay> {
+        val indexPath = projectDir.resolve("sessions-index.json")
         if (Files.exists(indexPath)) {
-            val result = loadFromIndex(indexPath, basePath, worktreeName)
+            val result = loadFromIndex(indexPath, projectDir, worktreeName)
             if (result.isNotEmpty()) return result
-            // Index exists but produced no results — fall back to JSONL scanning
-            log.warn("sessions-index.json returned 0 sessions, falling back to JSONL scan for $basePath")
+            log.warn("sessions-index.json returned 0 sessions, falling back to JSONL scan for $projectDir")
         }
-        return loadFromJsonlFiles(basePath, worktreeName)
+        return loadFromJsonlFiles(projectDir, worktreeName)
     }
 
-    private fun loadFromIndex(indexPath: Path, basePath: String, worktreeName: String?): List<SessionDisplay> {
+    private fun loadFromIndex(indexPath: Path, projectDir: Path, worktreeName: String?): List<SessionDisplay> {
         return try {
             val json = Files.readString(indexPath)
             val index = gson.fromJson(json, SessionIndex::class.java)
-            val projectDir = ClaudePathEncoder.projectDir(basePath)
 
             index.entries
                 .filter { !it.isSidechain }
@@ -286,8 +283,7 @@ class ClaudeSessionService(private val project: Project) : Disposable {
         }
     }
 
-    private fun loadFromJsonlFiles(basePath: String, worktreeName: String?): List<SessionDisplay> {
-        val projectDir = ClaudePathEncoder.projectDir(basePath)
+    private fun loadFromJsonlFiles(projectDir: Path, worktreeName: String?): List<SessionDisplay> {
         if (!Files.isDirectory(projectDir)) return emptyList()
 
         val sessions = mutableListOf<SessionDisplay>()
