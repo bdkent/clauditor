@@ -25,6 +25,9 @@ import java.awt.Component
 import java.awt.datatransfer.StringSelection
 import java.awt.event.MouseEvent
 import java.nio.file.Files
+import java.time.Instant
+import java.time.temporal.ChronoUnit
+import javax.swing.BoxLayout
 import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -122,8 +125,14 @@ class SessionListPanel(
         val refreshAction = object : AnAction("Refresh", "Refresh session list", AllIcons.Actions.Refresh) {
             override fun actionPerformed(e: AnActionEvent) { sessionService.refresh() }
         }
+        val purgeAction = object : AnAction("Purge Old Sessions", "Delete sessions older than N days", AllIcons.Actions.GC) {
+            override fun actionPerformed(e: AnActionEvent) {
+                val dialog = PurgeDialog(project, allSessions, getStatus, sessionService)
+                dialog.show()
+            }
+        }
         val toolbar = ActionManager.getInstance()
-            .createActionToolbar("ClaudeSessionsToolbar", DefaultActionGroup(newSessionAction, refreshAction), true)
+            .createActionToolbar("ClaudeSessionsToolbar", DefaultActionGroup(newSessionAction, refreshAction, purgeAction), true)
         toolbar.targetComponent = rootPanel
 
         searchField.addDocumentListener(object : DocumentAdapter() {
@@ -285,4 +294,67 @@ class SessionListPanel(
         val prompt: String,
         val dialogTitle: String
     )
+}
+
+private class PurgeDialog(
+    project: Project,
+    private val sessions: List<SessionDisplay>,
+    private val getStatus: (String) -> SessionStatus,
+    private val sessionService: ClaudeSessionService
+) : com.intellij.openapi.ui.DialogWrapper(project) {
+
+    private val daysField = javax.swing.JTextField("30", 6)
+    private val countLabel = com.intellij.ui.components.JBLabel(" ")
+    private var candidateCount = 0
+
+    init {
+        title = "Purge Old Sessions"
+        setOKButtonText("Delete")
+        updateCount()
+        daysField.document.addDocumentListener(object : DocumentAdapter() {
+            override fun textChanged(e: DocumentEvent) { updateCount() }
+        })
+        init()
+    }
+
+    private fun updateCount() {
+        val days = daysField.text.trim().toLongOrNull()
+        if (days == null || days < 1) {
+            countLabel.text = " "
+            candidateCount = 0
+            return
+        }
+        val cutoff = Instant.now().minus(days, ChronoUnit.DAYS)
+        candidateCount = sessions.count {
+            it.modified.isBefore(cutoff) && getStatus(it.sessionId) == SessionStatus.AVAILABLE
+        }
+        countLabel.text = if (candidateCount == 0) "No sessions to delete"
+            else "$candidateCount session${if (candidateCount > 1) "s" else ""} will be deleted"
+    }
+
+    override fun createCenterPanel(): JComponent {
+        return JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            add(com.intellij.ui.components.JBLabel("Delete sessions not modified in the last N days:"))
+            add(javax.swing.Box.createVerticalStrut(JBUI.scale(6)))
+            add(daysField)
+            add(javax.swing.Box.createVerticalStrut(JBUI.scale(4)))
+            add(countLabel)
+        }
+    }
+
+    override fun getPreferredFocusedComponent(): JComponent = daysField
+
+    override fun doOKAction() {
+        val days = daysField.text.trim().toLongOrNull() ?: return
+        if (days < 1 || candidateCount == 0) return
+        val cutoff = Instant.now().minus(days, ChronoUnit.DAYS)
+        val candidates = sessions.filter {
+            it.modified.isBefore(cutoff) && getStatus(it.sessionId) == SessionStatus.AVAILABLE
+        }
+        for (session in candidates) {
+            sessionService.deleteSession(session.sessionId)
+        }
+        super.doOKAction()
+    }
 }

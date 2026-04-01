@@ -103,8 +103,118 @@ class ClaudeSessionEditor(
     }
 
     init {
+        val sessionService = ClaudeSessionService.getInstance(project)
+        val persistence = OpenSessionsPersistence.getInstance(project)
+
+        Disposer.register(rootDisposable, Disposable { file.sessionId?.let { persistence.remove(it) } })
+
+        // Sync tab title when session names change (e.g. after /rename)
+        val nameListener: () -> Unit = {
+            file.sessionId?.let { sid ->
+                sessionService.getSessions().find { it.sessionId == sid }?.tabTitle?.let {
+                    file.baseName = it
+                    refreshTabTitle()
+                }
+            }
+        }
+        sessionService.addChangeListener(nameListener)
+        Disposer.register(rootDisposable, Disposable { sessionService.removeChangeListener(nameListener) })
+
+        // Show loading, then async-detect external status before deciding what to display
+        val isResume = file.sessionId != null && file.forkFrom == null
+        loadingPanel.startLoading()
+
+        if (isResume) {
+            AppExecutorUtil.getAppScheduledExecutorService().execute {
+                val externalIds = com.clauditor.util.ClaudeProcessDetector
+                    .detectExternalSessions(project.basePath, sessionService.getSessions())
+                val isExternal = file.sessionId in externalIds
+                ApplicationManager.getApplication().invokeLater {
+                    if (project.isDisposed) return@invokeLater
+                    if (isExternal) {
+                        file.isExternallyOpen = true
+                        refreshTabTitle()
+                        showExternalPanel()
+                    } else {
+                        startTerminalSession()
+                        file.sessionId?.let { persistence.add(it) }
+                    }
+                }
+            }
+        } else {
+            startTerminalSession()
+        }
+    }
+
+    private fun showExternalPanel() {
+        val panel = JPanel(java.awt.GridBagLayout())
+        val inner = JPanel().apply {
+            layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+            border = JBUI.Borders.empty(20)
+        }
+
+        val icon = com.intellij.ui.components.JBLabel(AllIcons.General.Information).apply {
+            alignmentX = java.awt.Component.CENTER_ALIGNMENT
+        }
+        val message = com.intellij.ui.components.JBLabel("This session is open in an external terminal").apply {
+            alignmentX = java.awt.Component.CENTER_ALIGNMENT
+            font = font.deriveFont(font.size2D + 2f)
+            border = JBUI.Borders.emptyTop(8)
+        }
+        val subtitle = com.intellij.ui.components.JBLabel("Close the external session first to resume here").apply {
+            alignmentX = java.awt.Component.CENTER_ALIGNMENT
+            foreground = javax.swing.UIManager.getColor("Label.disabledForeground")
+            border = JBUI.Borders.emptyTop(4)
+        }
+        val resumeButton = javax.swing.JButton("Resume").apply {
+            alignmentX = java.awt.Component.CENTER_ALIGNMENT
+            isEnabled = false
+            addActionListener {
+                // Reopen the tab fresh — avoids loading panel state issues
+                val manager = FileEditorManager.getInstance(project)
+                manager.closeFile(file)
+                val newFile = ClaudeSessionVirtualFile(file.baseName, file.sessionId).apply {
+                    workingDir = file.workingDir
+                    isWorktreeSession = file.isWorktreeSession
+                }
+                manager.openFile(newFile, true)
+            }
+        }
+
+        inner.add(icon)
+        inner.add(message)
+        inner.add(subtitle)
+        inner.add(javax.swing.Box.createVerticalStrut(JBUI.scale(16)))
+        inner.add(resumeButton)
+
+        panel.add(inner)
+        loadingPanel.add(panel, BorderLayout.CENTER)
+        stopLoading()
+
+        // Poll until the external session closes, then enable resume
+        val sessionService = ClaudeSessionService.getInstance(project)
+        val pollAlarm = com.intellij.util.Alarm(com.intellij.util.Alarm.ThreadToUse.POOLED_THREAD, rootDisposable)
+        lateinit var poll: Runnable
+        poll = Runnable {
+            val stillExternal = com.clauditor.util.ClaudeProcessDetector
+                .detectExternalSessions(project.basePath, sessionService.getSessions())
+                .contains(file.sessionId)
+            if (!stillExternal) {
+                ApplicationManager.getApplication().invokeLater {
+                    subtitle.text = "External session closed — ready to resume"
+                    resumeButton.isEnabled = true
+                }
+            } else if (!pollAlarm.isDisposed) {
+                pollAlarm.addRequest(poll, 3000)
+            }
+        }
+        pollAlarm.addRequest(poll, 3000)
+    }
+
+    private fun startTerminalSession() {
         val terminalService = ClaudeTerminalService.getInstance(project)
         val statusService = ClaudeStatusService.getInstance(project)
+        val sessionService = ClaudeSessionService.getInstance(project)
         val persistence = OpenSessionsPersistence.getInstance(project)
 
         val isFork = file.forkFrom != null
@@ -240,23 +350,6 @@ class ClaudeSessionEditor(
         project.messageBus.connect(rootDisposable).subscribe(
             FileEditorManagerListener.FILE_EDITOR_MANAGER, selectionListener
         )
-
-        // Persistence
-        file.sessionId?.let { persistence.add(it) }
-        Disposer.register(rootDisposable, Disposable { file.sessionId?.let { persistence.remove(it) } })
-
-        // Sync tab title when session names change (e.g. after /rename)
-        val sessionService = ClaudeSessionService.getInstance(project)
-        val nameListener: () -> Unit = {
-            file.sessionId?.let { sid ->
-                sessionService.getSessions().find { it.sessionId == sid }?.tabTitle?.let {
-                    file.baseName = it
-                    refreshTabTitle()
-                }
-            }
-        }
-        sessionService.addChangeListener(nameListener)
-        Disposer.register(rootDisposable, Disposable { sessionService.removeChangeListener(nameListener) })
 
         // Link new/forked session to real session ID when it appears
         if (needsLinking) {

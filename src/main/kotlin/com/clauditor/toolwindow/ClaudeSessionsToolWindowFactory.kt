@@ -24,8 +24,8 @@ class ClaudeSessionsToolWindowFactory : ToolWindowFactory, DumbAware {
 
         val getStatus = { sessionId: String ->
             when {
-                isOpenInPlugin(project, sessionId) -> SessionStatus.OPEN_IN_PLUGIN
                 sessionService.isExternallyOpen(sessionId) -> SessionStatus.OPEN_EXTERNALLY
+                isOpenInPlugin(project, sessionId) -> SessionStatus.OPEN_IN_PLUGIN
                 else -> SessionStatus.AVAILABLE
             }
         }

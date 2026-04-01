@@ -1,97 +1,80 @@
 package com.clauditor.util
 
+import com.google.gson.Gson
+import com.google.gson.JsonObject
+import java.nio.file.Files
+import java.nio.file.Path
+
 object ClaudeProcessDetector {
 
-    private val UUID_REGEX = Regex(
-        """[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"""
-    )
-    private val RESUME_REGEX = Regex("""--resume\s+(\S+)""")
-
+    private val gson = Gson()
     /**
      * Detects externally running claude sessions (not launched by Clauditor).
      *
-     * Returns session IDs that are running externally. For processes with --resume,
-     * the value is resolved to a session ID (UUID or name lookup). For bare `claude`
-     * processes, the cwd is checked and the most recently modified JSONL is used.
+     * Reads ~/.claude/sessions/{PID}.json to get session IDs directly.
+     * If a session file has a "name" field, also resolves it against known sessions
+     * (since --resume {name} may create a new session ID for the same named session).
+     * Excludes Clauditor processes (identified by "clauditor-settings" in args).
      */
     fun detectExternalSessions(projectPath: String?, sessions: List<com.clauditor.model.SessionDisplay> = emptyList()): Set<String> {
+        if (projectPath == null) return emptySet()
         return try {
-            val process = ProcessHelper.builder("ps", "-A", "-o", "pid,args", "-ww").start()
-            val output = process.inputStream.bufferedReader().readText()
-            process.waitFor()
+            val clauditorPids = getClauditorPids()
+            val sessionsDir = Path.of(System.getProperty("user.home"), ".claude", "sessions")
+            if (!Files.isDirectory(sessionsDir)) return emptySet()
 
             val result = mutableSetOf<String>()
-            val unknownPids = mutableListOf<String>()
+            Files.list(sessionsDir).use { stream ->
+                stream.filter { it.toString().endsWith(".json") }
+                    .forEach { path ->
+                        try {
+                            val obj = gson.fromJson(Files.readString(path), JsonObject::class.java)
+                            val pid = obj.get("pid")?.asInt ?: return@forEach
+                            val sessionId = obj.get("sessionId")?.asString ?: return@forEach
+                            val cwd = obj.get("cwd")?.asString ?: return@forEach
 
-            for (line in output.lines()) {
-                val trimmed = line.trim()
-                val parts = trimmed.split(Regex("\\s+"), limit = 2)
-                if (parts.size < 2) continue
-                val pid = parts[0]
-                val args = parts[1]
-                if (!args.startsWith("claude")) continue
-                if (args.contains("clauditor-settings")) continue
+                            if (cwd != projectPath || pid in clauditorPids || !isProcessAlive(pid)) return@forEach
 
-                val resumeMatch = RESUME_REGEX.find(args)
-                if (resumeMatch != null) {
-                    val value = resumeMatch.groupValues[1]
-                    if (UUID_REGEX.matches(value)) {
-                        // Direct session ID
-                        result.add(value)
-                    } else {
-                        // Session name — resolve to ID
-                        val session = sessions.find { it.name == value || it.tabTitle == value }
-                        if (session != null) result.add(session.sessionId)
+                            result.add(sessionId)
+
+                            // If the session file has a name, also mark all matching
+                            // sessions from our list (--resume {name} gets a new ID,
+                            // and multiple sessions can share a name)
+                            val name = obj.get("name")?.asString
+                            if (name != null) {
+                                sessions.filter { it.name == name || it.tabTitle == name }
+                                    .forEach { result.add(it.sessionId) }
+                            }
+                        } catch (_: Exception) {}
                     }
-                } else if (args == "claude" || args.startsWith("claude ")) {
-                    unknownPids.add(pid)
-                }
             }
-
-            // For bare `claude` processes, check cwd and infer session from most recent JSONL
-            if (projectPath != null && unknownPids.isNotEmpty()) {
-                for (pid in unknownPids) {
-                    val cwd = getProcessCwd(pid)
-                    if (cwd == projectPath) {
-                        val sessionId = findMostRecentSession(projectPath)
-                        if (sessionId != null) result.add(sessionId)
-                    }
-                }
-            }
-
             result
         } catch (_: Exception) {
             emptySet()
         }
     }
 
-    /**
-     * Returns the session ID of the most recently modified JSONL file in the project dir.
-     * This is used to infer which session a bare `claude` process belongs to.
-     */
-    private fun findMostRecentSession(projectPath: String): String? {
+    private fun getClauditorPids(): Set<Int> {
         return try {
-            val projectDir = ClaudePathEncoder.projectDir(projectPath)
-            if (!java.nio.file.Files.isDirectory(projectDir)) return null
-            java.nio.file.Files.list(projectDir).use { stream ->
-                stream.filter { it.toString().endsWith(".jsonl") }
-                    .max(Comparator.comparingLong { java.nio.file.Files.getLastModifiedTime(it).toMillis() })
-                    .map { it.fileName.toString().removeSuffix(".jsonl") }
-                    .orElse(null)
-            }
+            val process = ProcessHelper.builder("ps", "-A", "-o", "pid,args", "-ww").start()
+            val output = process.inputStream.bufferedReader().readText()
+            process.waitFor()
+            output.lines()
+                .map { it.trim() }
+                .filter { it.contains("clauditor-settings") }
+                .mapNotNull { it.split(Regex("\\s+"), limit = 2).firstOrNull()?.toIntOrNull() }
+                .toSet()
         } catch (_: Exception) {
-            null
+            emptySet()
         }
     }
 
-    private fun getProcessCwd(pid: String): String? {
+    private fun isProcessAlive(pid: Int): Boolean {
         return try {
-            val lsof = ProcessHelper.builder("lsof", "-a", "-p", pid, "-d", "cwd", "-Fn").start()
-            val output = lsof.inputStream.bufferedReader().readText()
-            lsof.waitFor()
-            output.lines().lastOrNull { it.startsWith("n/") }?.removePrefix("n")
+            val process = ProcessHelper.builder("kill", "-0", pid.toString()).start()
+            process.waitFor() == 0
         } catch (_: Exception) {
-            null
+            false
         }
     }
 }

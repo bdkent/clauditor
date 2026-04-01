@@ -35,6 +35,7 @@ class ClaudeSessionVirtualFile(
     var contextPercent: Double? = null
     var isThinking: Boolean = false
     var notifyState: String? = null
+    var isExternallyOpen: Boolean = false
 
     init {
         isWritable = false
@@ -55,6 +56,7 @@ class ClaudeSessionVirtualFile(
     override fun hashCode(): Int = sessionKey.hashCode()
 
     fun computeTabTitle(): String = when {
+        isExternallyOpen -> "\u2197 $baseName"                    // ↗ external session
         notifyState == "permission_prompt" -> "$baseName \u26A0"  // ⚠ needs permission
         notifyState == "idle_prompt" -> "$baseName \u25CB"        // ○ waiting for input
         notifyState?.startsWith("tool:") == true -> "$baseName \u2699" // ⚙ tool in use
