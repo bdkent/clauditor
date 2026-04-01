@@ -38,10 +38,12 @@ class ClaudeSessionService(private val project: Project) : Disposable {
     @Volatile
     private var lastKnownMtime: Long = 0
 
+    /** Session IDs running in external terminals (not Clauditor). */
     @Volatile
-    private var externallyOpenSessionIds: Set<String> = emptySet()
+    private var externalSessionIds: Set<String> = emptySet()
 
-    fun isExternallyOpen(sessionId: String): Boolean = sessionId in externallyOpenSessionIds
+    fun isExternallyOpen(sessionId: String): Boolean =
+        sessionId in externalSessionIds
 
     fun addChangeListener(listener: () -> Unit) {
         listeners.add(listener)
@@ -122,7 +124,7 @@ class ClaudeSessionService(private val project: Project) : Disposable {
 
     fun refresh() {
         cachedSessions = loadSessions()
-        externallyOpenSessionIds = ClaudeProcessDetector.getActiveSessionIds()
+        refreshExternalSessions()
         ApplicationManager.getApplication().invokeLater {
             listeners.forEach { it() }
         }
@@ -196,10 +198,9 @@ class ClaudeSessionService(private val project: Project) : Disposable {
         } catch (_: Exception) {
         }
 
-        // Always refresh external sessions so the "open externally" status stays current
-        val newExternal = ClaudeProcessDetector.getActiveSessionIds()
-        if (newExternal != externallyOpenSessionIds) {
-            externallyOpenSessionIds = newExternal
+        // Refresh external session detection
+        val changed = refreshExternalSessions()
+        if (changed) {
             ApplicationManager.getApplication().invokeLater {
                 listeners.forEach { it() }
             }
@@ -208,6 +209,14 @@ class ClaudeSessionService(private val project: Project) : Disposable {
         if (!pollAlarm.isDisposed) {
             pollAlarm.addRequest(::checkForChanges, 5000)
         }
+    }
+
+    /** Returns true if external session state changed. */
+    private fun refreshExternalSessions(): Boolean {
+        val ids = ClaudeProcessDetector.detectExternalSessions(project.basePath, cachedSessions ?: emptyList())
+        val changed = ids != externalSessionIds
+        externalSessionIds = ids
+        return changed
     }
 
     private fun loadSessions(): List<SessionDisplay> {

@@ -146,9 +146,7 @@ class ClaudeSessionsToolWindowFactory : ToolWindowFactory, DumbAware {
             val sessions = sessionService.getSessions().associateBy { it.sessionId }
             for (sessionId in savedIds) {
                 val session = sessions[sessionId] ?: continue
-                if (!sessionService.isExternallyOpen(sessionId)) {
-                    openSession(project, session)
-                }
+                openSession(project, session)
             }
         }
     }

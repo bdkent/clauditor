@@ -79,9 +79,8 @@ class ClaudeTerminalService(private val project: Project) {
         onActiveChanged: ((Boolean) -> Unit)? = null,
         onUserInput: (() -> Unit)? = null
     ): TerminalSession {
-        return createWidget(arrayOf("claude"), parent, workingDir = workingDir, statusFile = statusFile, notifyFile = notifyFile, onReady = { process ->
-            sendInput(process, "/rename $name\r")
-        }, onActiveChanged = onActiveChanged, onUserInput = onUserInput)
+        return createWidget(arrayOf("claude", "--name", name), parent, workingDir = workingDir, statusFile = statusFile, notifyFile = notifyFile,
+            onActiveChanged = onActiveChanged, onUserInput = onUserInput)
     }
 
     private fun createWidget(

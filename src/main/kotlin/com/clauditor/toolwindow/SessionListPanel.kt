@@ -55,7 +55,7 @@ class SessionListPanel(
                 }
                 SessionStatus.OPEN_IN_PLUGIN -> {
                     c.foreground = if (isRowSelected(row)) selectionForeground else foreground
-                    toolTipText = "This session is open in this window \u2014 double-click to focus"
+                    toolTipText = "This session is open \u2014 double-click to focus"
                 }
                 SessionStatus.AVAILABLE -> {
                     c.foreground = if (isRowSelected(row)) selectionForeground else foreground
