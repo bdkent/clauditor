@@ -84,7 +84,15 @@ class ClaudeSessionEditor(
     private val versionLabel = JBLabel("").apply {
         border = JBUI.Borders.empty(0, 6)
         foreground = UIManager.getColor("Label.disabledForeground")
+        cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+        addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                val version = versionLinkTarget ?: return
+                com.intellij.ide.BrowserUtil.browse("https://code.claude.com/docs/en/changelog#$version")
+            }
+        })
     }
+    private var versionLinkTarget: String? = null
     private val contextBar = JPanel(BorderLayout()).apply {
         border = JBUI.Borders.empty(2, 4)
         val rightPanel = JPanel().apply {
@@ -1136,6 +1144,8 @@ class ClaudeSessionEditor(
             }
             costLabel.text = status.costUsd?.let { String.format("$%.2f", it) } ?: ""
             status.cliVersion?.let { current ->
+                versionLinkTarget = current.replace('.', '-')
+                versionLabel.toolTipText = "View release notes for v$current"
                 val statusService = ClaudeStatusService.getInstance(project)
                 statusService.refreshLatestCliVersion()
                 val latest = statusService.getLatestCliVersion()
