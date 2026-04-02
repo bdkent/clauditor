@@ -8,6 +8,7 @@ import com.clauditor.model.ContextItemType
 import com.clauditor.services.ClaudeContextService
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -100,7 +101,8 @@ class ClaudeContextPanel(private val project: Project) : JPanel(BorderLayout()) 
                 rebuildTree()
             }
             override fun getActionUpdateThread() = ActionUpdateThread.EDT
-            override fun displayTextInToolbar() = true
+        }.apply {
+            templatePresentation.putClientProperty(ActionUtil.SHOW_TEXT_IN_TOOLBAR, true)
         }
 
     private fun levelToggle(tooltip: String, level: ContextItemLevel, icon: Icon) =

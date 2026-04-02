@@ -4,7 +4,7 @@
 
 A JetBrains IDE plugin for managing [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions. Browse, resume, fork, and monitor Claude sessions directly from your editor — with built-in git worktree support.
 
-> Requires IntelliJ 2024.2+ and Claude CLI installed.
+> Requires IntelliJ 2024.3+ and Claude CLI installed.
 
 ![Clauditor overview](docs/screenshots/overview.png)
 
@@ -97,7 +97,7 @@ A collapsible sidebar in each session editor lists every user message in the con
 
 ## Requirements
 
-- **IntelliJ IDEA** 2024.2 or later (Community or Ultimate)
+- **IntelliJ IDEA** 2024.3 or later (Community or Ultimate)
 - **Claude CLI** installed and in your `PATH` ([install guide](https://docs.anthropic.com/en/docs/claude-code/getting-started))
 - Authenticated via `claude login`
 
