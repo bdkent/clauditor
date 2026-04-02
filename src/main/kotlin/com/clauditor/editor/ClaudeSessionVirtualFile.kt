@@ -41,7 +41,8 @@ class ClaudeSessionVirtualFile(
         isWritable = false
     }
 
-    override fun getFileSystem(): VirtualFileSystem = ClaudeSessionFileSystem.getInstance()
+    override fun getFileSystem(): VirtualFileSystem =
+        ClaudeSessionFileSystem.getInstanceOrNull() ?: super.getFileSystem()
 
     override fun getPath(): String = sessionKey
 

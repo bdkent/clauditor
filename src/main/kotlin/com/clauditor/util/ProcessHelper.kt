@@ -28,7 +28,16 @@ object ProcessHelper {
     }
 
     fun builder(vararg command: String): ProcessBuilder {
-        return ProcessBuilder(*command).apply {
+        // Resolve the binary to an absolute path using our augmented PATH,
+        // because ProcessBuilder uses the parent JVM's PATH to find commands,
+        // not the child environment we set.
+        val resolved = if (command.isNotEmpty() && !command[0].contains(File.separator)) {
+            val abs = which(command[0])
+            if (abs != null) arrayOf(abs, *command.drop(1).toTypedArray()) else command
+        } else {
+            command
+        }
+        return ProcessBuilder(*resolved).apply {
             environment().putAll(augmentedEnv())
         }
     }

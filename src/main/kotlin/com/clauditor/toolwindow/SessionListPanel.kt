@@ -185,12 +185,13 @@ class SessionListPanel(
                         } else {
                             project.basePath ?: System.getProperty("user.home")
                         }
-                        log.info("Clauditor: Open in Terminal — workDir=$workDir, command=[claude, --resume, ${session.sessionId}]")
+                        val claudeBin = claudePath ?: "claude"
+                        log.info("Clauditor: Open in Terminal — workDir=$workDir, command=[$claudeBin, --resume, ${session.sessionId}]")
 
                         val tabState = org.jetbrains.plugins.terminal.TerminalTabState().apply {
                             myTabName = "claude: ${session.displayName}"
                             myWorkingDirectory = workDir
-                            myShellCommand = listOf("claude", "--resume", session.sessionId)
+                            myShellCommand = listOf(claudeBin, "--resume", session.sessionId)
                         }
                         terminal.createNewSession(runner, tabState)
                         log.info("Clauditor: Open in Terminal — session created successfully")

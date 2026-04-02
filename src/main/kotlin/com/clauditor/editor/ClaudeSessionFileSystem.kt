@@ -53,7 +53,13 @@ class ClaudeSessionFileSystem : VirtualFileSystem() {
 
         fun getInstance(): ClaudeSessionFileSystem {
             return com.intellij.openapi.vfs.VirtualFileManager.getInstance()
-                .getFileSystem(PROTOCOL) as ClaudeSessionFileSystem
+                .getFileSystem(PROTOCOL) as? ClaudeSessionFileSystem
+                ?: throw IllegalStateException("ClaudeSessionFileSystem not registered — plugin may be unloading")
+        }
+
+        fun getInstanceOrNull(): ClaudeSessionFileSystem? {
+            return com.intellij.openapi.vfs.VirtualFileManager.getInstance()
+                .getFileSystem(PROTOCOL) as? ClaudeSessionFileSystem
         }
     }
 }
