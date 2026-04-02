@@ -44,8 +44,22 @@ Every session editor shows the git state of its working directory:
 - Current branch name and file change count
 - **Session-aware diffing** — distinguishes files changed by Claude from files with mixed changes
 - One-click commit of session-only changes
+- **Explain Changes** — popup that explains uncommitted session changes using conversation context and git diff
 
 <!-- ![Git toolbar](docs/screenshots/git-toolbar.png) -->
+
+### Transient Popup Queries
+
+Quick insights without leaving your session, powered by transient forked sessions that leave no trace:
+
+- **Summarize** — one-click conversation summary displayed in a formatted popup
+- **Explain Changes** — explains what changed in session files and why, using the full conversation context
+- **Review Memory** — analyzes auto-memory files and suggests which should be promoted to proper rules
+- Results rendered with full markdown support (tables, code blocks, lists) via JBHtmlPane
+- Cached per query type, automatically invalidated when the session advances
+- Runs on Sonnet for speed and cost efficiency
+
+<!-- ![Summarize popup](docs/screenshots/summarize-popup.png) -->
 
 ### External Session Detection
 
@@ -85,7 +99,9 @@ Browse and insert Claude's configuration from the Context tool window:
 - **Rules** — project and personal `.claude/rules/` files
 - **Agents** — custom agent definitions
 - **Skills** — slash command skills with metadata
+- **Memory** — auto-memory files from `~/.claude/projects/`
 - Double-click to open in editor, or insert directly into a running session
+- **Review Memory** button to analyze memories and suggest rule promotions
 
 <!-- ![Context panel](docs/screenshots/context-panel.png) -->
 

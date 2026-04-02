@@ -27,12 +27,22 @@
         <li>Worktree toolbar with commit, PR, rebase, and merge controls</li>
     </ul>
 
+    <p><b>Transient Popup Queries</b></p>
+    <ul>
+        <li><b>Summarize</b> — one-click conversation summary via a transient forked session, displayed in a popup</li>
+        <li><b>Explain Changes</b> — explains uncommitted session changes using conversation context and git diff</li>
+        <li><b>Review Memory</b> — analyzes auto-memory files and suggests promotions to rules</li>
+        <li>Results rendered as formatted HTML with markdown support (tables, code blocks, lists)</li>
+        <li>Cached per query type, invalidated when the session advances</li>
+    </ul>
+
     <p><b>Live Status &amp; Context</b></p>
     <ul>
         <li>Tab indicators: thinking, idle, waiting for permission, compacting</li>
         <li>Context usage progress bar and model info per session</li>
         <li>Rate limit tracking and auth status in the Status panel</li>
-        <li>Browse and insert rules, agents, and skills from the Context panel</li>
+        <li>CLI version in status bar links to release notes</li>
+        <li>Browse and insert rules, agents, skills, and memory files from the Context panel</li>
     </ul>
 
     <p><b>Editor Integration</b></p>
