@@ -98,6 +98,10 @@ class ClaudeTerminalService(private val project: Project) {
 
         val effectiveWorkingDir = workingDir ?: project.basePath ?: System.getProperty("user.home")
 
+        log.info("Clauditor: createWidget — command=${command.toList()}, workingDir=$effectiveWorkingDir")
+        val claudePath = com.clauditor.util.ProcessHelper.which(command[0])
+        log.info("Clauditor: createWidget — '${command[0]}' resolved to: $claudePath")
+
         // Build the full command, adding --settings override for status interception
         val fullCommand = if (statusFile != null) {
             val statusService = ClaudeStatusService.getInstance(project)
@@ -120,10 +124,17 @@ class ClaudeTerminalService(private val project: Project) {
             command
         }
 
-        val ptyProcess = PtyProcessBuilder(fullCommand)
-            .setEnvironment(env)
-            .setDirectory(effectiveWorkingDir)
-            .start()
+        log.info("Clauditor: createWidget — fullCommand=${fullCommand.toList()}, PATH=${env["PATH"]?.take(200)}")
+
+        val ptyProcess = try {
+            PtyProcessBuilder(fullCommand)
+                .setEnvironment(env)
+                .setDirectory(effectiveWorkingDir)
+                .start()
+        } catch (e: Exception) {
+            log.error("Clauditor: createWidget — failed to start PTY process: ${fullCommand.toList()}", e)
+            throw e
+        }
 
         // Wrap onActiveChanged to fire onReady on the first idle transition
         val wrappedOnActiveChanged: ((Boolean) -> Unit)? = if (onActiveChanged != null || onReady != null) {

@@ -29,6 +29,9 @@ dependencies {
         pluginVerifier()
     }
 
+    implementation(libs.commonmark)
+    implementation(libs.commonmark.tables)
+
     testImplementation(kotlin("test"))
 }
 

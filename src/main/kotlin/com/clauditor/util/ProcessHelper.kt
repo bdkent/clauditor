@@ -1,5 +1,8 @@
 package com.clauditor.util
 
+import com.intellij.openapi.diagnostic.Logger
+import java.io.File
+
 /**
  * Shared process creation helper that ensures common binary locations are in PATH.
  *
@@ -8,6 +11,8 @@ package com.clauditor.util
  * `git`, and other tools are discoverable.
  */
 object ProcessHelper {
+
+    private val log = Logger.getInstance(ProcessHelper::class.java)
 
     private val EXTRA_PATHS = listOf(
         "${System.getProperty("user.home")}/.local/bin",
@@ -26,5 +31,26 @@ object ProcessHelper {
         return ProcessBuilder(*command).apply {
             environment().putAll(augmentedEnv())
         }
+    }
+
+    /**
+     * Searches for a binary in the augmented PATH directories.
+     * Returns the resolved path if found, or null. Logs all checked locations.
+     */
+    fun which(binary: String): String? {
+        val env = augmentedEnv()
+        val pathDirs = (env["PATH"] ?: "").split(":")
+        log.info("Clauditor: searching for '$binary' in ${pathDirs.size} PATH directories")
+        for (dir in pathDirs) {
+            val candidate = File(dir, binary)
+            val exists = candidate.exists()
+            val executable = candidate.canExecute()
+            if (exists) {
+                log.info("Clauditor: found '$binary' at ${candidate.absolutePath} (executable=$executable)")
+                return candidate.absolutePath
+            }
+        }
+        log.warn("Clauditor: '$binary' not found in any PATH directory. PATH=${env["PATH"]}")
+        return null
     }
 }

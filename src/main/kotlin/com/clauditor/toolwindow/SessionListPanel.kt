@@ -173,19 +173,30 @@ class SessionListPanel(
             add(object : AnAction("Open in Terminal", "Resume in the built-in Terminal tool window", AllIcons.Debugger.Console) {
                 override fun actionPerformed(e: AnActionEvent) {
                     val session = selectedSession() ?: return
-                    val terminal = org.jetbrains.plugins.terminal.TerminalToolWindowManager.getInstance(project)
-                    val runner = org.jetbrains.plugins.terminal.LocalTerminalDirectRunner.createTerminalRunner(project)
-                    val workDir = if (session.worktreeName != null && project.basePath != null) {
-                        ClaudePathEncoder.worktreeAbsolutePath(project.basePath!!, session.worktreeName)
-                    } else {
-                        project.basePath ?: System.getProperty("user.home")
+                    val log = com.intellij.openapi.diagnostic.Logger.getInstance("Clauditor.SessionListPanel")
+                    try {
+                        val claudePath = com.clauditor.util.ProcessHelper.which("claude")
+                        log.info("Clauditor: Open in Terminal — claude=$claudePath, session=${session.sessionId}, name=${session.displayName}")
+
+                        val terminal = org.jetbrains.plugins.terminal.TerminalToolWindowManager.getInstance(project)
+                        val runner = org.jetbrains.plugins.terminal.LocalTerminalDirectRunner.createTerminalRunner(project)
+                        val workDir = if (session.worktreeName != null && project.basePath != null) {
+                            ClaudePathEncoder.worktreeAbsolutePath(project.basePath!!, session.worktreeName)
+                        } else {
+                            project.basePath ?: System.getProperty("user.home")
+                        }
+                        log.info("Clauditor: Open in Terminal — workDir=$workDir, command=[claude, --resume, ${session.sessionId}]")
+
+                        val tabState = org.jetbrains.plugins.terminal.TerminalTabState().apply {
+                            myTabName = "claude: ${session.displayName}"
+                            myWorkingDirectory = workDir
+                            myShellCommand = listOf("claude", "--resume", session.sessionId)
+                        }
+                        terminal.createNewSession(runner, tabState)
+                        log.info("Clauditor: Open in Terminal — session created successfully")
+                    } catch (ex: Exception) {
+                        log.error("Clauditor: Open in Terminal failed — session=${session.sessionId}", ex)
                     }
-                    val tabState = org.jetbrains.plugins.terminal.TerminalTabState().apply {
-                        myTabName = "claude: ${session.displayName}"
-                        myWorkingDirectory = workDir
-                        myShellCommand = listOf("claude", "--resume", session.sessionId)
-                    }
-                    terminal.createNewSession(runner, tabState)
                 }
                 override fun update(e: AnActionEvent) {
                     e.presentation.isEnabled = selectedSession() != null

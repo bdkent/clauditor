@@ -1,6 +1,11 @@
 [versions]
 kotlin = "2.0.21"
 intellijPlatform = "2.2.1"
+commonmark = "0.24.0"
+
+[libraries]
+commonmark = { module = "org.commonmark:commonmark", version.ref = "commonmark" }
+commonmark-tables = { module = "org.commonmark:commonmark-ext-gfm-tables", version.ref = "commonmark" }
 
 [plugins]
 kotlin = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

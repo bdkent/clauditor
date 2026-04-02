@@ -30,6 +30,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 
 class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable {
 
+    private val log = com.intellij.openapi.diagnostic.Logger.getInstance(ClaudeStatusBarPanel::class.java)
     private val fiveHourBar = rateMeter("—")
     private val sevenDayBar = rateMeter("—")
     private val authLabel = JBLabel("")
@@ -175,11 +176,15 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
     private fun refreshAuth() {
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
+                val claudePath = com.clauditor.util.ProcessHelper.which("claude")
+                log.info("Clauditor: refreshAuth — claude binary resolved to: $claudePath")
+
                 val proc = com.clauditor.util.ProcessHelper.builder("claude", "auth", "status")
                     .redirectErrorStream(true)
                     .start()
                 val out = proc.inputStream.bufferedReader().readText()
-                proc.waitFor()
+                val exitCode = proc.waitFor()
+                log.info("Clauditor: 'claude auth status' exit=$exitCode, output=${out.take(500)}")
 
                 // Output may contain non-JSON lines (warnings, prompts) — extract the JSON object
                 val jsonStr = out.substringAfter("{", "").let { if (it.isNotEmpty()) "{$it" else null }
@@ -188,6 +193,8 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
                 val loggedIn = obj?.get("loggedIn")?.asBoolean ?: false
                 val email = obj?.get("email")?.asString ?: ""
                 val sub = obj?.get("subscriptionType")?.asString ?: ""
+
+                log.info("Clauditor: auth parsed — loggedIn=$loggedIn, email=$email, sub=$sub")
 
                 ApplicationManager.getApplication().invokeLater {
                     if (loggedIn) {
@@ -201,11 +208,13 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
                     authButton.isEnabled = true
                 }
             } catch (e: java.io.IOException) {
+                log.warn("Clauditor: refreshAuth IOException — claude CLI not found", e)
                 ApplicationManager.getApplication().invokeLater {
                     authLabel.text = "claude CLI not found"
                     authButton.isEnabled = false
                 }
             } catch (e: Exception) {
+                log.warn("Clauditor: refreshAuth failed", e)
                 ApplicationManager.getApplication().invokeLater {
                     authLabel.text = "auth check failed"
                     authButton.isEnabled = true
