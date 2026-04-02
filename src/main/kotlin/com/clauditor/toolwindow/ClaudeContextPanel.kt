@@ -36,7 +36,7 @@ class ClaudeContextPanel(private val project: Project) : JPanel(BorderLayout()) 
     private val treeModel = DefaultTreeModel(rootNode)
     private val tree = Tree(treeModel)
     private var allItems: List<ContextItem> = emptyList()
-    private val activeTypes = mutableSetOf(ContextItemType.RULE, ContextItemType.AGENT, ContextItemType.SKILL)
+    private val activeTypes = mutableSetOf(ContextItemType.RULE, ContextItemType.AGENT, ContextItemType.SKILL, ContextItemType.MEMORY)
     private val activeLevels = mutableSetOf(ContextItemLevel.PERSONAL, ContextItemLevel.PROJECT)
 
     init {
@@ -72,7 +72,7 @@ class ClaudeContextPanel(private val project: Project) : JPanel(BorderLayout()) 
     private fun createToolbar(): JComponent {
         val group = DefaultActionGroup()
 
-        group.add(object : AnAction("Refresh", "Rescan rules, agents, and skills", AllIcons.Actions.Refresh) {
+        group.add(object : AnAction("Refresh", "Rescan rules, agents, skills, and memories", AllIcons.Actions.Refresh) {
             override fun actionPerformed(e: AnActionEvent) { reload() }
         })
 
@@ -81,6 +81,7 @@ class ClaudeContextPanel(private val project: Project) : JPanel(BorderLayout()) 
         group.add(typeToggle("Rules", ContextItemType.RULE))
         group.add(typeToggle("Agents", ContextItemType.AGENT))
         group.add(typeToggle("Skills", ContextItemType.SKILL))
+        group.add(typeToggle("Memory", ContextItemType.MEMORY))
 
         group.addSeparator()
 
@@ -145,7 +146,8 @@ class ClaudeContextPanel(private val project: Project) : JPanel(BorderLayout()) 
         val sections = listOf(
             "Rules" to ContextItemType.RULE,
             "Agents" to ContextItemType.AGENT,
-            "Skills" to ContextItemType.SKILL
+            "Skills" to ContextItemType.SKILL,
+            "Memory" to ContextItemType.MEMORY
         )
 
         for ((label, type) in sections) {

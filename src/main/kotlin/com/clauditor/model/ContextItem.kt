@@ -1,6 +1,6 @@
 package com.clauditor.model
 
-enum class ContextItemType { RULE, AGENT, SKILL }
+enum class ContextItemType { RULE, AGENT, SKILL, MEMORY }
 enum class ContextItemLevel { PERSONAL, PROJECT }
 
 data class ContextItem(
@@ -16,5 +16,6 @@ data class ContextItem(
             ContextItemType.SKILL -> "/${name} "
             ContextItemType.AGENT -> "@${name} "
             ContextItemType.RULE -> ""
+            ContextItemType.MEMORY -> ""
         }
 }

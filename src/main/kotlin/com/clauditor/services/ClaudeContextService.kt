@@ -3,6 +3,7 @@ package com.clauditor.services
 import com.clauditor.model.ContextItem
 import com.clauditor.model.ContextItemLevel
 import com.clauditor.model.ContextItemType
+import com.clauditor.util.ClaudePathEncoder
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import java.nio.file.Files
@@ -24,6 +25,11 @@ class ClaudeContextService(private val project: Project) {
             scanMarkdownDir(proj.resolve("rules"), ContextItemType.RULE, ContextItemLevel.PROJECT, items)
             scanMarkdownDir(proj.resolve("agents"), ContextItemType.AGENT, ContextItemLevel.PROJECT, items)
             scanSkillsDir(proj.resolve("skills"), ContextItemLevel.PROJECT, items)
+        }
+
+        project.basePath?.let { basePath ->
+            val memoryDir = ClaudePathEncoder.projectDir(basePath).resolve("memory")
+            scanMarkdownDir(memoryDir, ContextItemType.MEMORY, ContextItemLevel.PROJECT, items)
         }
 
         return items.sortedWith(compareBy({ it.type }, { it.name }))
