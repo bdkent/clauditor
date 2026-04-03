@@ -468,8 +468,9 @@ class ClaudeSessionEditor(
 
         AppExecutorUtil.getAppScheduledExecutorService().execute {
             try {
+                val claudeBin = com.clauditor.util.ProcessHelper.which("claude") ?: "claude"
                 val process = ProcessBuilder(
-                    "claude", "-p",
+                    claudeBin, "-p",
                     "--resume", sessionId,
                     "--fork-session",
                     "--no-session-persistence",
