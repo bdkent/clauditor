@@ -238,7 +238,14 @@ class ClaudeSessionEditor(
 
         val onActiveChanged: (Boolean) -> Unit = { active ->
             file.isThinking = active
-            if (active) stopLoading()
+            if (active) {
+                stopLoading()
+                if (file.isUnresponsive) {
+                    file.isUnresponsive = false
+                    reconnectButton.icon = AllIcons.Actions.Refresh
+                    reconnectButton.toolTipText = "Reconnect — close and resume this session"
+                }
+            }
             summarizeButton?.isEnabled = !active
             refreshTabTitle()
         }
@@ -251,11 +258,18 @@ class ClaudeSessionEditor(
             }
         }
 
+        val onUnresponsive: () -> Unit = {
+            file.isUnresponsive = true
+            reconnectButton.toolTipText = "Session unresponsive — click to reconnect"
+            reconnectButton.icon = AllIcons.General.Error
+            refreshTabTitle()
+        }
+
         val session = when {
-            isFork -> terminalService.createForkWidget(file.forkFrom!!, rootDisposable, workingDir = file.workingDir, statusFile = statusFile, notifyFile = notifyFile, onActiveChanged = onActiveChanged, onUserInput = onUserInput)
-            file.sessionId != null -> terminalService.createResumeWidget(file.sessionId!!, rootDisposable, workingDir = file.workingDir, statusFile = statusFile, notifyFile = notifyFile, onActiveChanged = onActiveChanged, onUserInput = onUserInput)
-            isNewWorktree -> terminalService.createNewWorktreeWidget(file.newWorktreeName!!, rootDisposable, statusFile = statusFile, notifyFile = notifyFile, onActiveChanged = onActiveChanged, onUserInput = onUserInput)
-            else -> terminalService.createNewNamedSessionWidget(file.baseName, rootDisposable, workingDir = file.workingDir, statusFile = statusFile, notifyFile = notifyFile, onActiveChanged = onActiveChanged, onUserInput = onUserInput)
+            isFork -> terminalService.createForkWidget(file.forkFrom!!, rootDisposable, workingDir = file.workingDir, statusFile = statusFile, notifyFile = notifyFile, onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive)
+            file.sessionId != null -> terminalService.createResumeWidget(file.sessionId!!, rootDisposable, workingDir = file.workingDir, statusFile = statusFile, notifyFile = notifyFile, onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive)
+            isNewWorktree -> terminalService.createNewWorktreeWidget(file.newWorktreeName!!, rootDisposable, statusFile = statusFile, notifyFile = notifyFile, onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive)
+            else -> terminalService.createNewNamedSessionWidget(file.baseName, rootDisposable, workingDir = file.workingDir, statusFile = statusFile, notifyFile = notifyFile, onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive)
         }
 
         ptyProcess = session.process
@@ -507,6 +521,61 @@ class ClaudeSessionEditor(
         }
     }
 
+    private fun runStandaloneQuery(anchor: JComponent, prompt: String, cacheKey: String? = null) {
+        val workingDir = file.workingDir ?: project.basePath ?: return
+
+        val balloon = com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
+            .createBalloonBuilder(JBLabel("  Thinking\u2026  "))
+            .setFadeoutTime(0)
+            .setAnimationCycle(0)
+            .setHideOnClickOutside(false)
+            .setHideOnAction(false)
+            .setFillColor(UIManager.getColor("Panel.background") ?: Color(60, 63, 65))
+            .createBalloon()
+        balloon.show(
+            com.intellij.ui.awt.RelativePoint.getSouthOf(anchor),
+            com.intellij.openapi.ui.popup.Balloon.Position.below
+        )
+
+        AppExecutorUtil.getAppScheduledExecutorService().execute {
+            try {
+                val claudeBin = com.clauditor.util.ProcessHelper.which("claude") ?: "claude"
+                val process = ProcessBuilder(
+                    claudeBin, "-p",
+                    "--no-session-persistence",
+                    "--model", "sonnet",
+                    "--append-system-prompt", "You are answering a query from a plugin UI popup. Respond ONLY with the requested content. No conversational filler, no follow-up questions, no commentary about your own actions.",
+                    prompt
+                ).apply {
+                    environment().putAll(com.clauditor.util.ProcessHelper.augmentedEnv())
+                    directory(java.io.File(workingDir))
+                    redirectInput(ProcessBuilder.Redirect.from(java.io.File("/dev/null")))
+                    redirectErrorStream(true)
+                }.start()
+
+                val output = process.inputStream.bufferedReader().readText()
+                process.waitFor(120, TimeUnit.SECONDS)
+                val result = output.trim()
+
+                ApplicationManager.getApplication().invokeLater {
+                    balloon.hide()
+                    if (project.isDisposed) return@invokeLater
+                    if (cacheKey != null) {
+                        transientCache[cacheKey] = getTranscriptMtime() to result
+                    }
+                    showTransientResult(anchor, result)
+                }
+            } catch (e: Exception) {
+                ApplicationManager.getApplication().invokeLater {
+                    balloon.hide()
+                    if (!project.isDisposed) {
+                        showTransientResult(anchor, "Error: ${e.message}")
+                    }
+                }
+            }
+        }
+    }
+
     private fun showTransientResult(anchor: JComponent, text: String) {
         val html = markdownToHtml(text)
         val styleConfig = com.intellij.ui.components.JBHtmlPaneStyleConfiguration.builder().apply {
@@ -677,7 +746,8 @@ class ClaudeSessionEditor(
                     if (changedBySession.isEmpty()) return@executeOnPooledThread
 
                     val diff = execGit(gitDir, "diff", "--", *changedBySession.toTypedArray())
-                    val prompt = "Using your knowledge of this conversation, explain these uncommitted changes concisely. For each file, describe what changed and why. Output ONLY the explanation in markdown — no preamble, no questions, no commentary.\n\n$diff"
+                    val fileList = changedBySession.joinToString(", ")
+                    val prompt = "Explain ONLY the following uncommitted changes. Do not discuss any other files or changes. Files: $fileList\n\nFor each file, describe what changed and why based on the conversation context. Output ONLY the explanation in markdown — no preamble, no questions, no commentary.\n\n$diff"
 
                     ApplicationManager.getApplication().invokeLater {
                         runTransientQuery(explainButton, prompt, cacheKey = "explain")

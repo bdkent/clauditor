@@ -30,12 +30,13 @@ class ClaudeTerminalService(private val project: Project) {
         statusFile: Path? = null,
         notifyFile: Path? = null,
         onActiveChanged: ((Boolean) -> Unit)? = null,
-        onUserInput: (() -> Unit)? = null
+        onUserInput: (() -> Unit)? = null,
+        onUnresponsive: (() -> Unit)? = null
     ): TerminalSession {
         return createWidget(
             arrayOf("claude", "--resume", sessionId),
             parent, workingDir = workingDir, statusFile = statusFile, notifyFile = notifyFile,
-            onActiveChanged = onActiveChanged, onUserInput = onUserInput
+            onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive
         )
     }
 
@@ -46,12 +47,13 @@ class ClaudeTerminalService(private val project: Project) {
         statusFile: Path? = null,
         notifyFile: Path? = null,
         onActiveChanged: ((Boolean) -> Unit)? = null,
-        onUserInput: (() -> Unit)? = null
+        onUserInput: (() -> Unit)? = null,
+        onUnresponsive: (() -> Unit)? = null
     ): TerminalSession {
         return createWidget(
             arrayOf("claude", "--resume", forkFromSessionId, "--fork-session"),
             parent, workingDir = workingDir, statusFile = statusFile, notifyFile = notifyFile,
-            onActiveChanged = onActiveChanged, onUserInput = onUserInput
+            onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive
         )
     }
 
@@ -61,12 +63,13 @@ class ClaudeTerminalService(private val project: Project) {
         statusFile: Path? = null,
         notifyFile: Path? = null,
         onActiveChanged: ((Boolean) -> Unit)? = null,
-        onUserInput: (() -> Unit)? = null
+        onUserInput: (() -> Unit)? = null,
+        onUnresponsive: (() -> Unit)? = null
     ): TerminalSession {
         return createWidget(
             arrayOf("claude", "--worktree", worktreeName),
             parent, statusFile = statusFile, notifyFile = notifyFile,
-            onActiveChanged = onActiveChanged, onUserInput = onUserInput
+            onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive
         )
     }
 
@@ -77,10 +80,11 @@ class ClaudeTerminalService(private val project: Project) {
         statusFile: Path? = null,
         notifyFile: Path? = null,
         onActiveChanged: ((Boolean) -> Unit)? = null,
-        onUserInput: (() -> Unit)? = null
+        onUserInput: (() -> Unit)? = null,
+        onUnresponsive: (() -> Unit)? = null
     ): TerminalSession {
         return createWidget(arrayOf("claude", "--name", name), parent, workingDir = workingDir, statusFile = statusFile, notifyFile = notifyFile,
-            onActiveChanged = onActiveChanged, onUserInput = onUserInput)
+            onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive)
     }
 
     private fun createWidget(
@@ -91,7 +95,8 @@ class ClaudeTerminalService(private val project: Project) {
         notifyFile: Path? = null,
         onReady: ((PtyProcess) -> Unit)? = null,
         onActiveChanged: ((Boolean) -> Unit)? = null,
-        onUserInput: (() -> Unit)? = null
+        onUserInput: (() -> Unit)? = null,
+        onUnresponsive: (() -> Unit)? = null
     ): TerminalSession {
         val env = com.clauditor.util.ProcessHelper.augmentedEnv()
         env["TERM"] = "xterm-256color"
@@ -149,7 +154,7 @@ class ClaudeTerminalService(private val project: Project) {
         } else null
 
         val connector = if (wrappedOnActiveChanged != null) {
-            ActivityMonitoringTtyConnector(ptyProcess, StandardCharsets.UTF_8, onActiveChanged = wrappedOnActiveChanged, onUserInput = onUserInput)
+            ActivityMonitoringTtyConnector(ptyProcess, StandardCharsets.UTF_8, onActiveChanged = wrappedOnActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive)
         } else {
             FilteringPtyConnector(ptyProcess, StandardCharsets.UTF_8)
         }

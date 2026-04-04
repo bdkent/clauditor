@@ -26,44 +26,68 @@ class ActivityMonitoringTtyConnector(
     charset: Charset,
     private val idleTimeoutMs: Long = 1200,
     private val echoWindowMs: Long = 500,
+    private val echoTimeoutMs: Long = 3000,
     private val onActiveChanged: (active: Boolean) -> Unit,
-    private val onUserInput: (() -> Unit)? = null
+    private val onUserInput: (() -> Unit)? = null,
+    private val onUnresponsive: (() -> Unit)? = null
 ) : FilteringPtyConnector(process, charset) {
 
     @Volatile private var active = false
     @Volatile private var lastWriteMs: Long = 0
+    @Volatile private var lastReadMs: Long = 0
+    @Volatile private var unresponsiveNotified = false
     private var idleFuture: ScheduledFuture<*>? = null
+    private var echoCheckFuture: ScheduledFuture<*>? = null
 
     override fun read(buf: CharArray, offset: Int, length: Int): Int {
         val count = super.read(buf, offset, length)
-        if (count > 0 && System.currentTimeMillis() - lastWriteMs > echoWindowMs) {
-            if (!active) {
-                active = true
-                ApplicationManager.getApplication().invokeLater { onActiveChanged(true) }
+        if (count > 0) {
+            lastReadMs = System.currentTimeMillis()
+            if (unresponsiveNotified) {
+                unresponsiveNotified = false
             }
-            idleFuture?.cancel(false)
-            idleFuture = AppExecutorUtil.getAppScheduledExecutorService().schedule({
-                active = false
-                ApplicationManager.getApplication().invokeLater { onActiveChanged(false) }
-            }, idleTimeoutMs, TimeUnit.MILLISECONDS)
+            if (System.currentTimeMillis() - lastWriteMs > echoWindowMs) {
+                if (!active) {
+                    active = true
+                    ApplicationManager.getApplication().invokeLater { onActiveChanged(true) }
+                }
+                idleFuture?.cancel(false)
+                idleFuture = AppExecutorUtil.getAppScheduledExecutorService().schedule({
+                    active = false
+                    ApplicationManager.getApplication().invokeLater { onActiveChanged(false) }
+                }, idleTimeoutMs, TimeUnit.MILLISECONDS)
+            }
         }
         return count
     }
 
     override fun write(bytes: ByteArray) {
         super.write(bytes)
-        lastWriteMs = System.currentTimeMillis()
+        scheduleEchoCheck()
         onUserInput?.let { cb -> ApplicationManager.getApplication().invokeLater(cb) }
     }
 
     override fun write(string: String) {
         super.write(string)
-        lastWriteMs = System.currentTimeMillis()
+        scheduleEchoCheck()
         onUserInput?.let { cb -> ApplicationManager.getApplication().invokeLater(cb) }
+    }
+
+    private fun scheduleEchoCheck() {
+        lastWriteMs = System.currentTimeMillis()
+        unresponsiveNotified = false
+        echoCheckFuture?.cancel(false)
+        echoCheckFuture = AppExecutorUtil.getAppScheduledExecutorService().schedule({
+            if (!unresponsiveNotified && lastReadMs < lastWriteMs) {
+                unresponsiveNotified = true
+                onUnresponsive?.let { cb -> ApplicationManager.getApplication().invokeLater(cb) }
+            }
+        }, echoTimeoutMs, TimeUnit.MILLISECONDS)
     }
 
     override fun close() {
         idleFuture?.cancel(false)
+        echoCheckFuture?.cancel(false)
         super.close()
     }
 }

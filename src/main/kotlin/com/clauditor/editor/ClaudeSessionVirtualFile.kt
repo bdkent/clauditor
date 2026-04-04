@@ -34,6 +34,7 @@ class ClaudeSessionVirtualFile(
     var modelName: String? = null
     var contextPercent: Double? = null
     var isThinking: Boolean = false
+    var isUnresponsive: Boolean = false
     var notifyState: String? = null
     var isExternallyOpen: Boolean = false
 
@@ -58,6 +59,7 @@ class ClaudeSessionVirtualFile(
 
     fun computeTabTitle(): String = when {
         isExternallyOpen -> "\u2197 $baseName"                    // ↗ external session
+        isUnresponsive -> "$baseName \u2298"                       // ⊘ unresponsive
         notifyState == "permission_prompt" -> "$baseName \u26A0"  // ⚠ needs permission
         notifyState == "idle_prompt" -> "$baseName \u25CB"        // ○ waiting for input
         notifyState?.startsWith("tool:") == true -> "$baseName \u2699" // ⚙ tool in use
