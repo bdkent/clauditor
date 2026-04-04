@@ -38,7 +38,8 @@
 
     <p><b>Live Status &amp; Context</b></p>
     <ul>
-        <li>Tab indicators: thinking, idle, waiting for permission, compacting</li>
+        <li>Tab indicators: thinking, idle, waiting for permission, compacting, unresponsive (⊘)</li>
+        <li>Automatic detection of frozen/unresponsive CLI sessions with reconnect prompt</li>
         <li>Context usage progress bar and model info per session</li>
         <li>Rate limit tracking and auth status in the Status panel</li>
         <li>CLI version in status bar links to release notes</li>
