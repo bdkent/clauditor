@@ -175,7 +175,7 @@ class SessionListPanel(
                     val session = selectedSession() ?: return
                     val log = com.intellij.openapi.diagnostic.Logger.getInstance("Clauditor.SessionListPanel")
                     try {
-                        val claudePath = com.clauditor.util.ProcessHelper.which("claude")
+                        val claudePath = com.clauditor.settings.ClauditorSettings.getInstance().resolveClaudeBinary()
                         log.info("Clauditor: Open in Terminal — claude=$claudePath, session=${session.sessionId}, name=${session.displayName}")
 
                         val terminal = org.jetbrains.plugins.terminal.TerminalToolWindowManager.getInstance(project)

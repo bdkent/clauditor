@@ -482,17 +482,19 @@ class ClaudeSessionEditor(
 
         AppExecutorUtil.getAppScheduledExecutorService().execute {
             try {
-                val claudeBin = com.clauditor.util.ProcessHelper.which("claude") ?: "claude"
+                val settings = com.clauditor.settings.ClauditorSettings.getInstance()
+                val claudeBin = settings.resolveClaudeBinary()
                 val process = ProcessBuilder(
                     claudeBin, "-p",
                     "--resume", sessionId,
                     "--fork-session",
                     "--no-session-persistence",
-                    "--model", "sonnet",
+                    "--model", settings.state.transientQueryModel,
                     "--append-system-prompt", "You are answering a query from a plugin UI popup. Respond ONLY with the requested content. No conversational filler, no follow-up questions, no commentary about your own actions.",
                     prompt
                 ).apply {
                     environment().putAll(com.clauditor.util.ProcessHelper.augmentedEnv())
+                    environment().putAll(settings.environmentOverrides())
                     directory(java.io.File(workingDir))
                     redirectInput(ProcessBuilder.Redirect.from(java.io.File("/dev/null")))
                     redirectErrorStream(true)
@@ -539,15 +541,17 @@ class ClaudeSessionEditor(
 
         AppExecutorUtil.getAppScheduledExecutorService().execute {
             try {
-                val claudeBin = com.clauditor.util.ProcessHelper.which("claude") ?: "claude"
+                val settings = com.clauditor.settings.ClauditorSettings.getInstance()
+                val claudeBin = settings.resolveClaudeBinary()
                 val process = ProcessBuilder(
                     claudeBin, "-p",
                     "--no-session-persistence",
-                    "--model", "sonnet",
+                    "--model", settings.state.transientQueryModel,
                     "--append-system-prompt", "You are answering a query from a plugin UI popup. Respond ONLY with the requested content. No conversational filler, no follow-up questions, no commentary about your own actions.",
                     prompt
                 ).apply {
                     environment().putAll(com.clauditor.util.ProcessHelper.augmentedEnv())
+                    environment().putAll(settings.environmentOverrides())
                     directory(java.io.File(workingDir))
                     redirectInput(ProcessBuilder.Redirect.from(java.io.File("/dev/null")))
                     redirectErrorStream(true)

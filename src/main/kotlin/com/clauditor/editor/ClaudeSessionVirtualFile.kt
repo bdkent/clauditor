@@ -25,7 +25,10 @@ class ClaudeSessionVirtualFile(
 ) : LightVirtualFile(name, ClaudeSessionFileType, "") {
 
     /** Stable key used for VFS URL resolution so tabs survive drag-and-drop. */
-    val sessionKey: String = sessionId ?: forkFrom ?: newWorktreeName ?: "new-${System.nanoTime()}"
+    val sessionKey: String = sessionId
+        ?: if (forkFrom != null) "fork-$forkFrom-${System.nanoTime()}" else null
+        ?: newWorktreeName
+        ?: "new-${System.nanoTime()}"
 
     var baseName: String = name
     var workingDir: String? = null

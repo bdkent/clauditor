@@ -100,12 +100,20 @@ class ClaudeTerminalService(private val project: Project) {
     ): TerminalSession {
         val env = com.clauditor.util.ProcessHelper.augmentedEnv()
         env["TERM"] = "xterm-256color"
+        val settings = com.clauditor.settings.ClauditorSettings.getInstance()
+        val envOverrides = settings.environmentOverrides()
+        env.putAll(envOverrides)
+        if (envOverrides.isNotEmpty()) {
+            log.info("Clauditor: createWidget — env overrides: $envOverrides")
+        }
 
         val effectiveWorkingDir = workingDir ?: project.basePath ?: System.getProperty("user.home")
-
         log.info("Clauditor: createWidget — command=${command.toList()}, workingDir=$effectiveWorkingDir")
-        val claudePath = com.clauditor.util.ProcessHelper.which(command[0])
+        val claudePath = settings.resolveClaudeBinary()
         log.info("Clauditor: createWidget — '${command[0]}' resolved to: $claudePath")
+
+        // Replace the binary name with the resolved path and append default session args
+        val resolvedCommand = arrayOf(claudePath) + command.drop(1).toTypedArray() + settings.extraSessionArgs().toTypedArray()
 
         // Build the full command, adding --settings override for status interception
         val fullCommand = if (statusFile != null) {
@@ -122,11 +130,11 @@ class ClaudeTerminalService(private val project: Project) {
                 try { Files.deleteIfExists(overridePath) } catch (_: Exception) {}
             })
 
-            // Insert --settings right after "claude"
-            arrayOf(command[0], "--settings", overridePath.toAbsolutePath().toString()) +
-                command.drop(1).toTypedArray()
+            // Insert --settings right after the binary
+            arrayOf(resolvedCommand[0], "--settings", overridePath.toAbsolutePath().toString()) +
+                resolvedCommand.drop(1).toTypedArray()
         } else {
-            command
+            resolvedCommand
         }
 
         log.info("Clauditor: createWidget — fullCommand=${fullCommand.toList()}, PATH=${env["PATH"]?.take(200)}")
@@ -154,7 +162,8 @@ class ClaudeTerminalService(private val project: Project) {
         } else null
 
         val connector = if (wrappedOnActiveChanged != null) {
-            ActivityMonitoringTtyConnector(ptyProcess, StandardCharsets.UTF_8, onActiveChanged = wrappedOnActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive)
+            val echoTimeout = com.clauditor.settings.ClauditorSettings.getInstance().state.echoTimeoutMs.toLong()
+            ActivityMonitoringTtyConnector(ptyProcess, StandardCharsets.UTF_8, echoTimeoutMs = echoTimeout, onActiveChanged = wrappedOnActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive)
         } else {
             FilteringPtyConnector(ptyProcess, StandardCharsets.UTF_8)
         }

@@ -139,5 +139,16 @@
             id="Clauditor"
             displayType="NONE"
         />
+
+        <applicationService
+            serviceImplementation="com.clauditor.settings.ClauditorSettings"
+        />
+
+        <applicationConfigurable
+            parentId="tools"
+            instance="com.clauditor.settings.ClauditorSettingsConfigurable"
+            id="com.clauditor.settings.ClauditorSettingsConfigurable"
+            displayName="Clauditor"
+        />
     </extensions>
 </idea-plugin>

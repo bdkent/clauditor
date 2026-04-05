@@ -176,7 +176,7 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
     private fun refreshAuth() {
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val claudePath = com.clauditor.util.ProcessHelper.which("claude")
+                val claudePath = com.clauditor.settings.ClauditorSettings.getInstance().resolveClaudeBinary()
                 log.info("Clauditor: refreshAuth — claude binary resolved to: $claudePath")
 
                 val proc = com.clauditor.util.ProcessHelper.builder("claude", "auth", "status")
