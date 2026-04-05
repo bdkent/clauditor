@@ -54,6 +54,14 @@
         <li>Model and effort switching from the session toolbar</li>
     </ul>
 
+    <p><b>Settings Panel</b></p>
+    <ul>
+        <li>Configure under Settings &gt; Tools &gt; Clauditor</li>
+        <li>Transient query model (haiku/sonnet/opus), unresponsive timeout, claude binary path, default session args</li>
+        <li>Environment variable toggles: COLORTERM=truecolor, telemetry, update check, prompt caching</li>
+        <li>Custom environment variables (KEY=VALUE) with link to Claude Code env var docs</li>
+    </ul>
+
     <p>Requires Claude Code CLI installed and available on your PATH.</p>
     ]]></description>
 

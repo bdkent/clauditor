@@ -57,7 +57,7 @@ Quick insights without leaving your session, powered by transient forked session
 - **Review Memory** — analyzes auto-memory files and suggests which should be promoted to proper rules
 - Results rendered with full markdown support (tables, code blocks, lists) via JBHtmlPane
 - Cached per query type, automatically invalidated when the session advances
-- Runs on Sonnet for speed and cost efficiency
+- Configurable model via Settings (defaults to Sonnet)
 
 <!-- ![Summarize popup](docs/screenshots/summarize-popup.png) -->
 
@@ -106,6 +106,17 @@ Browse and insert Claude's configuration from the Context tool window:
 
 <!-- ![Context panel](docs/screenshots/context-panel.png) -->
 
+### Settings Panel
+
+Configure the plugin under **Settings > Tools > Clauditor**:
+
+- **Transient query model** — choose haiku, sonnet, or opus for popup queries
+- **Unresponsive timeout** — tune how long before a session is flagged as frozen
+- **Claude binary path** — manual override if auto-detection fails
+- **Default session arguments** — extra CLI flags for every new session
+- **Environment variables** — toggles for `COLORTERM=truecolor`, telemetry, update check, prompt caching, plus free-form custom vars
+- Links to [Claude Code environment variable docs](https://docs.anthropic.com/en/docs/claude-code/settings#environment-variables)
+
 ### Message History
 
 A collapsible sidebar in each session editor lists every user message in the conversation. Click a message to scroll the terminal to that point.
@@ -151,6 +162,7 @@ This launches a sandboxed IDE instance with the plugin loaded.
 src/main/kotlin/com/clauditor/
 ├── editor/          Session editor, virtual files, tab titles, icons
 ├── services/        Session loading, terminal PTY, status polling, context scanning
+├── settings/        Plugin settings panel and persistent configuration
 ├── toolwindow/      Sessions list, status bar, context browser, message history
 ├── terminal/        PTY output filtering, activity detection
 ├── model/           Data classes (sessions, status, context items)
