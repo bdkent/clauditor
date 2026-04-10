@@ -36,8 +36,7 @@ class ClaudeTerminalService(private val project: Project) {
         return createWidget(
             arrayOf("claude", "--resume", sessionId),
             parent, workingDir = workingDir, statusFile = statusFile, notifyFile = notifyFile,
-            onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive
-        )
+            onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive        )
     }
 
     fun createForkWidget(
@@ -53,8 +52,7 @@ class ClaudeTerminalService(private val project: Project) {
         return createWidget(
             arrayOf("claude", "--resume", forkFromSessionId, "--fork-session"),
             parent, workingDir = workingDir, statusFile = statusFile, notifyFile = notifyFile,
-            onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive
-        )
+            onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive        )
     }
 
     fun createNewWorktreeWidget(
@@ -69,8 +67,7 @@ class ClaudeTerminalService(private val project: Project) {
         return createWidget(
             arrayOf("claude", "--worktree", worktreeName),
             parent, statusFile = statusFile, notifyFile = notifyFile,
-            onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive
-        )
+            onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive        )
     }
 
     fun createNewNamedSessionWidget(

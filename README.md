@@ -114,6 +114,7 @@ Configure the plugin under **Settings > Tools > Clauditor**:
 - **Unresponsive timeout** — tune how long before a session is flagged as frozen
 - **Claude binary path** — manual override if auto-detection fails
 - **Default session arguments** — extra CLI flags for every new session
+- **Status line refresh interval** — re-run the status line command every N seconds (requires CLI 2.1.97+)
 - **Environment variables** — toggles for `COLORTERM=truecolor`, telemetry, update check, prompt caching, plus free-form custom vars
 - Links to [Claude Code environment variable docs](https://docs.anthropic.com/en/docs/claude-code/settings#environment-variables)
 

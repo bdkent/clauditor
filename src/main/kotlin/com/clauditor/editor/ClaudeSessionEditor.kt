@@ -62,6 +62,7 @@ class ClaudeSessionEditor(
     @Volatile private var lastTitle: String? = null
     private val transientCache = mutableMapOf<String, Pair<Long, String>>() // key -> (mtime, result)
     private var summarizeButton: javax.swing.JButton? = null
+    private var maxEffortButton: javax.swing.JButton? = null
     private val reconnectButton = javax.swing.JButton(com.intellij.icons.AllIcons.Actions.Refresh).apply {
         toolTipText = "Reconnect — close and resume this session"
         isFocusable = false
@@ -256,6 +257,7 @@ class ClaudeSessionEditor(
                 statusService.clearNotifyState(file.sessionId ?: monitoringId)
                 refreshTabTitle()
             }
+            maxEffortButton?.let { if (!it.isEnabled) it.isEnabled = true }
         }
 
         val onUnresponsive: () -> Unit = {
@@ -361,6 +363,9 @@ class ClaudeSessionEditor(
         }
         statusService.addStatusListener(statusListener)
         Disposer.register(rootDisposable, Disposable { statusService.removeStatusListener(statusListener) })
+        // Deliver cached state immediately — otherwise a re-instantiated editor
+        // stays invisible until the next distinct status update arrives.
+        statusService.getStatus(monitoringId)?.let { statusListener(monitoringId, it) }
 
         // Clear idle indicator when user switches to this tab
         val selectionListener = object : FileEditorManagerListener {
@@ -386,7 +391,16 @@ class ClaudeSessionEditor(
         val leftPanel = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 2))
 
         leftPanel.add(createModelDropdown())
-        leftPanel.add(createEffortDropdown())
+
+        maxEffortButton = javax.swing.JButton("max").apply {
+            toolTipText = "Send /effort max"
+            isFocusable = false
+            addActionListener {
+                sendToTerminal("/effort max\r")
+                isEnabled = false
+            }
+        }
+        leftPanel.add(maxEffortButton)
 
         val forkButton = javax.swing.JButton(com.intellij.icons.AllIcons.Actions.Copy)
         forkButton.toolTipText = "Fork — open a new session branched from this one"
@@ -1173,21 +1187,6 @@ class ClaudeSessionEditor(
         } catch (_: Exception) { return false }
 
         return simulated == currentContent
-    }
-
-    private fun createEffortDropdown(): JComponent {
-        val levels = arrayOf("low", "medium", "high", "max")
-
-        val combo = javax.swing.JComboBox(levels)
-        combo.selectedItem = "medium"
-        combo.isFocusable = false
-
-        combo.addActionListener {
-            val selected = combo.selectedItem as? String ?: return@addActionListener
-            sendToTerminal("/effort $selected\r")
-        }
-
-        return combo
     }
 
     private fun createModelDropdown(): JComponent {

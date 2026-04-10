@@ -34,6 +34,9 @@ class ClauditorSettings : PersistentStateComponent<ClauditorSettings.State> {
 
         /** Additional custom env vars (KEY=VALUE per line). */
         @JvmField var customEnvVars: String = ""
+
+        /** Status line refresh interval in seconds. 0 means event-driven only. */
+        @JvmField var statusLineRefreshInterval: Int = 60
     }
 
     private var myState = State()

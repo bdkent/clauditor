@@ -127,6 +127,10 @@ class ClaudeStatusService(private val project: Project) : Disposable {
         val statusLine = JsonObject().apply {
             addProperty("type", "command")
             addProperty("command", wrapperPath.toAbsolutePath().toString())
+            val refreshInterval = com.clauditor.settings.ClauditorSettings.getInstance().state.statusLineRefreshInterval
+            if (refreshInterval > 0) {
+                addProperty("refreshInterval", refreshInterval)
+            }
         }
         root.add("statusLine", statusLine)
 
