@@ -13,6 +13,7 @@ import java.io.File
 object ProcessHelper {
 
     private val log = Logger.getInstance(ProcessHelper::class.java)
+    private val resolvedPaths = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     private val EXTRA_PATHS = listOf(
         "${System.getProperty("user.home")}/.local/bin",
@@ -44,22 +45,21 @@ object ProcessHelper {
 
     /**
      * Searches for a binary in the augmented PATH directories.
-     * Returns the resolved path if found, or null. Logs all checked locations.
+     * Returns the resolved path if found, or null. Results are cached.
      */
     fun which(binary: String): String? {
+        resolvedPaths[binary]?.let { return it }
         val env = augmentedEnv()
         val pathDirs = (env["PATH"] ?: "").split(":")
-        log.info("Clauditor: searching for '$binary' in ${pathDirs.size} PATH directories")
         for (dir in pathDirs) {
             val candidate = File(dir, binary)
-            val exists = candidate.exists()
-            val executable = candidate.canExecute()
-            if (exists) {
-                log.info("Clauditor: found '$binary' at ${candidate.absolutePath} (executable=$executable)")
+            if (candidate.exists() && candidate.canExecute()) {
+                log.info("Clauditor: resolved '$binary' to ${candidate.absolutePath}")
+                resolvedPaths[binary] = candidate.absolutePath
                 return candidate.absolutePath
             }
         }
-        log.warn("Clauditor: '$binary' not found in any PATH directory. PATH=${env["PATH"]}")
+        log.warn("Clauditor: '$binary' not found in any PATH directory")
         return null
     }
 }

@@ -43,6 +43,7 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
     var isVertical = true
         private set
     private val contentPanel = JPanel()
+    private var statusListener: ((String, com.clauditor.model.ClaudeStatus?) -> Unit)? = null
 
     init {
         layout = BorderLayout()
@@ -54,9 +55,13 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
         statusLink.addHyperlinkListener { BrowserUtil.browse("https://status.claude.com") }
 
         val statusService = ClaudeStatusService.getInstance(project)
-        statusService.addStatusListener { _, _ ->
+        log.info("Clauditor[${project.name}]: StatusBarPanel init — panel=${System.identityHashCode(this)}, service=${System.identityHashCode(statusService)}")
+        val listener: (String, com.clauditor.model.ClaudeStatus?) -> Unit = { sid, _ ->
+            log.info("Clauditor[${project.name}]: StatusBarPanel listener fired for $sid, panel=${System.identityHashCode(this)}")
             ApplicationManager.getApplication().invokeLater { updateRateLimits() }
         }
+        statusService.addStatusListener(listener)
+        statusListener = listener
         Disposer.register(project, this)
 
         rebuildLayout()
@@ -313,5 +318,8 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
         }, 60_000)
     }
 
-    override fun dispose() {}
+    override fun dispose() {
+        statusListener?.let { ClaudeStatusService.getInstance(project).removeStatusListener(it) }
+        statusListener = null
+    }
 }

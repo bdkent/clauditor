@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicReference
 @Service(Service.Level.PROJECT)
 class ClaudeStatusService(private val project: Project) : Disposable {
 
+    private val log = com.intellij.openapi.diagnostic.Logger.getInstance(ClaudeStatusService::class.java)
     private val gson = Gson()
     private val pollAlarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD, this)
     private val monitoredSessions = ConcurrentHashMap<String, Path>()
@@ -33,10 +34,12 @@ class ClaudeStatusService(private val project: Project) : Disposable {
 
     fun addStatusListener(listener: (String, ClaudeStatus?) -> Unit) {
         listeners.add(listener)
+        log.info("Clauditor[${project.name}]: addStatusListener — listener count now ${listeners.size}")
     }
 
     fun removeStatusListener(listener: (String, ClaudeStatus?) -> Unit) {
         listeners.remove(listener)
+        log.info("Clauditor[${project.name}]: removeStatusListener — listener count now ${listeners.size}")
     }
 
     fun getStatus(sessionId: String): ClaudeStatus? = currentStatus[sessionId]
@@ -55,6 +58,7 @@ class ClaudeStatusService(private val project: Project) : Disposable {
      * The wrapper reads JSON from stdin, writes it to $CLAUDITOR_STATUS_FILE,
      * then chains to $CLAUDITOR_ORIGINAL_STATUSLINE (the user's real command).
      */
+    @Synchronized
     fun getWrapperScriptPath(): Path {
         wrapperScript?.let { if (Files.exists(it)) return it }
         val script = Files.createTempFile("clauditor-statusline-", ".sh")
@@ -62,7 +66,8 @@ class ClaudeStatusService(private val project: Project) : Disposable {
             appendLine("#!/bin/bash")
             appendLine("input=\$(cat)")
             appendLine("if [ -n \"\$CLAUDITOR_STATUS_FILE\" ]; then")
-            appendLine("  echo \"\$input\" > \"\$CLAUDITOR_STATUS_FILE\"")
+            appendLine("  echo \"\$input\" > \"\${CLAUDITOR_STATUS_FILE}.\$\$\"")
+            appendLine("  mv \"\${CLAUDITOR_STATUS_FILE}.\$\$\" \"\$CLAUDITOR_STATUS_FILE\" 2>/dev/null")
             appendLine("fi")
             appendLine("if [ -n \"\$CLAUDITOR_ORIGINAL_STATUSLINE\" ]; then")
             appendLine("  echo \"\$input\" | \$CLAUDITOR_ORIGINAL_STATUSLINE")
@@ -78,6 +83,7 @@ class ClaudeStatusService(private val project: Project) : Disposable {
      * Hook commands call this script, which reads the event JSON from stdin,
      * extracts the notification_type, and writes it to $CLAUDITOR_NOTIFY_FILE.
      */
+    @Synchronized
     fun getNotifyScriptPath(): Path {
         notifyScript?.let { if (Files.exists(it)) return it }
         val script = Files.createTempFile("clauditor-notify-", ".sh")
@@ -106,8 +112,8 @@ class ClaudeStatusService(private val project: Project) : Disposable {
             appendLine("      ;;")
             appendLine("  esac")
             appendLine("  if [ -n \"\$state\" ]; then")
-            appendLine("    echo \"\$state\" > \"\${CLAUDITOR_NOTIFY_FILE}.tmp\"")
-            appendLine("    mv \"\${CLAUDITOR_NOTIFY_FILE}.tmp\" \"\$CLAUDITOR_NOTIFY_FILE\"")
+            appendLine("    echo \"\$state\" > \"\${CLAUDITOR_NOTIFY_FILE}.\$\$\"")
+            appendLine("    mv \"\${CLAUDITOR_NOTIFY_FILE}.\$\$\" \"\$CLAUDITOR_NOTIFY_FILE\" 2>/dev/null")
             appendLine("  fi")
             appendLine("fi")
         })
@@ -255,6 +261,7 @@ class ClaudeStatusService(private val project: Project) : Disposable {
                     val status = parseStatus(json)
                     if (status != null && status != currentStatus[sessionId]) {
                         currentStatus[sessionId] = status
+                        log.info("Clauditor[${project.name}]: poll — status changed for $sessionId, firing ${listeners.size} listener(s)")
                         listeners.forEach { it(sessionId, status) }
                     }
                 }
