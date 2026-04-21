@@ -74,7 +74,7 @@ class ClaudeContextService(private val project: Project) {
                             description = description,
                             type = ContextItemType.SKILL,
                             level = level,
-                            path = skillDir
+                            path = if (Files.isRegularFile(skillFile)) skillFile else skillDir
                         ))
                     }
             }
