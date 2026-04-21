@@ -376,6 +376,13 @@ class ClaudeSessionEditor(
                     refreshTabTitle()
                 }
             }
+
+            override fun fileClosed(source: FileEditorManager, closedFile: VirtualFile) {
+                if (closedFile == file) {
+                    statusService.clearSession(monitoringId)
+                    file.sessionId?.let { if (it != monitoringId) statusService.clearSession(it) }
+                }
+            }
         }
         project.messageBus.connect(rootDisposable).subscribe(
             FileEditorManagerListener.FILE_EDITOR_MANAGER, selectionListener

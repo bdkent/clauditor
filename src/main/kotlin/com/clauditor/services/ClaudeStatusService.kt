@@ -242,6 +242,14 @@ class ClaudeStatusService(private val project: Project) : Disposable {
     fun stopMonitoring(sessionId: String) {
         monitoredSessions.remove(sessionId)
         notifyFiles.remove(sessionId)
+        // Keep currentStatus, notifyState, and /tmp files around so a re-instantiated
+        // editor can show the last known state immediately. Use clearSession() for
+        // explicit tab-close cleanup, and service dispose() handles project close.
+    }
+
+    /** Fully clear all state for a session — call when the user explicitly closes the tab. */
+    fun clearSession(sessionId: String) {
+        stopMonitoring(sessionId)
         notifyState.remove(sessionId)
         currentStatus.remove(sessionId)
         try { Files.deleteIfExists(createStatusFilePath(sessionId)) } catch (_: Exception) {}
