@@ -76,6 +76,14 @@ class ClaudeSessionEditor(
         border = JBUI.Borders.empty(5, 3)
         foreground = COLOR_GREEN
     }
+    private val effortLabel = JBLabel("").apply {
+        border = JBUI.Borders.empty(0, 6)
+        foreground = UIManager.getColor("Label.disabledForeground")
+    }
+    private val thinkingLabel = JBLabel("").apply {
+        border = JBUI.Borders.empty(0, 6)
+        foreground = UIManager.getColor("Label.disabledForeground")
+    }
     private val remainingLabel = JBLabel("").apply {
         border = JBUI.Borders.empty(0, 6)
         foreground = UIManager.getColor("Label.disabledForeground")
@@ -101,9 +109,13 @@ class ClaudeSessionEditor(
         val rightPanel = JPanel().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
             isOpaque = false
+            effortLabel.alignmentY = 0.5f
+            thinkingLabel.alignmentY = 0.5f
             remainingLabel.alignmentY = 0.5f
             costLabel.alignmentY = 0.5f
             versionLabel.alignmentY = 0.5f
+            add(effortLabel)
+            add(thinkingLabel)
             add(remainingLabel)
             add(costLabel)
             add(versionLabel)
@@ -1368,6 +1380,8 @@ class ClaudeSessionEditor(
                 usedPercent < 80 -> COLOR_YELLOW
                 else -> COLOR_RED
             }
+            effortLabel.text = status.effortLevel?.let { "effort: $it" } ?: ""
+            thinkingLabel.text = if (status.thinkingEnabled == true) "thinking" else ""
             remainingLabel.text = when {
                 status.contextRemainingTokens != null && status.contextWindowSize != null ->
                     "${formatTokens(status.contextRemainingTokens)} / ${formatTokens(status.contextWindowSize)}"

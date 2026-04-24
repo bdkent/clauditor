@@ -12,5 +12,7 @@ data class ClaudeStatus(
     val fiveHourRatePercent: Double?,
     val fiveHourResetsAt: Long?,
     val sevenDayRatePercent: Double?,
-    val sevenDayResetsAt: Long?
+    val sevenDayResetsAt: Long?,
+    val effortLevel: String?,
+    val thinkingEnabled: Boolean?
 )

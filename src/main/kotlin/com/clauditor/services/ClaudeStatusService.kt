@@ -314,6 +314,8 @@ class ClaudeStatusService(private val project: Project) : Disposable {
             val rates = obj.getAsJsonObject("rate_limits")
             val fiveHour = rates?.getAsJsonObject("five_hour")
             val sevenDay = rates?.getAsJsonObject("seven_day")
+            val effort = obj.getAsJsonObject("effort")
+            val thinking = obj.getAsJsonObject("thinking")
             ClaudeStatus(
                 modelId = modelId,
                 modelName = modelName,
@@ -326,7 +328,9 @@ class ClaudeStatusService(private val project: Project) : Disposable {
                 fiveHourRatePercent = fiveHour?.get("used_percentage")?.asDouble,
                 fiveHourResetsAt = fiveHour?.get("resets_at")?.asLong,
                 sevenDayRatePercent = sevenDay?.get("used_percentage")?.asDouble,
-                sevenDayResetsAt = sevenDay?.get("resets_at")?.asLong
+                sevenDayResetsAt = sevenDay?.get("resets_at")?.asLong,
+                effortLevel = effort?.get("level")?.asString,
+                thinkingEnabled = thinking?.get("enabled")?.asBoolean
             )
         } catch (_: Exception) {
             null

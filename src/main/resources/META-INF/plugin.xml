@@ -41,6 +41,7 @@
         <li>Tab indicators: thinking, idle, waiting for permission, compacting, unresponsive (⊘)</li>
         <li>Automatic detection of frozen/unresponsive CLI sessions with reconnect prompt</li>
         <li>Context usage progress bar and model info per session</li>
+        <li>Effort level and extended-thinking state shown in the tab status bar (CLI 2.1.119+)</li>
         <li>Rate limit tracking and auth status in the Status panel</li>
         <li>CLI version in status bar links to release notes</li>
         <li>Browse and insert rules, agents, skills, and memory files from the Context panel</li>
@@ -67,14 +68,7 @@
     ]]></description>
 
     <change-notes><![CDATA[
-    <p>0.1.0 — Initial release</p>
-    <ul>
-        <li>Session browser with search and sort</li>
-        <li>Session transcript viewer</li>
-        <li>One-click resume in terminal</li>
-        <li>Live status monitoring</li>
-        <li>Context file inspector</li>
-    </ul>
+    <p>See <a href="https://github.com/bdkent/clauditor/releases">GitHub releases</a> for per-version notes. The JetBrains Marketplace "What's New" section is populated automatically by CI from git log between tags.</p>
     ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
@@ -107,26 +101,6 @@
             canCloseContents="false"
         />
 
-        <projectService
-            serviceImplementation="com.clauditor.services.ClaudeSessionService"
-        />
-
-        <projectService
-            serviceImplementation="com.clauditor.services.ClaudeTerminalService"
-        />
-
-        <projectService
-            serviceImplementation="com.clauditor.services.ClaudeStatusService"
-        />
-
-        <projectService
-            serviceImplementation="com.clauditor.services.OpenSessionsPersistence"
-        />
-
-        <projectService
-            serviceImplementation="com.clauditor.services.ClaudeContextService"
-        />
-
         <virtualFileSystem
             implementationClass="com.clauditor.editor.ClaudeSessionFileSystem"
             key="claude-session"
@@ -147,10 +121,6 @@
         <notificationGroup
             id="Clauditor"
             displayType="NONE"
-        />
-
-        <applicationService
-            serviceImplementation="com.clauditor.settings.ClauditorSettings"
         />
 
         <applicationConfigurable

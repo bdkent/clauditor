@@ -79,6 +79,7 @@ Real-time visibility into what Claude is doing:
 - **Unresponsive detection** — automatically detects frozen CLI sessions when input gets no echo, highlights the reconnect button
 - **Context usage** — progress bar showing how much of Claude's context window is consumed
 - **Model info** — displays which model the session is using
+- **Effort & thinking** — tab status bar shows the current `/effort` level and whether extended thinking is enabled (requires CLI 2.1.119+)
 
 <!-- ![Session editor with status](docs/screenshots/editor-status.png) -->
 
