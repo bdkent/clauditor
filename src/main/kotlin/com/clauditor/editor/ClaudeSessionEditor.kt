@@ -1005,7 +1005,7 @@ class ClaudeSessionEditor(
             toolTipText = "Open worktree directory as a separate project"
             addActionListener {
                 if (worktreePath != null) {
-                    com.intellij.ide.impl.ProjectUtil.openOrImport(java.nio.file.Path.of(worktreePath), null, false)
+                    com.intellij.ide.impl.ProjectUtil.openOrImport(java.nio.file.Path.of(worktreePath), null, true)
                 }
             }
         }

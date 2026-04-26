@@ -65,7 +65,7 @@ class ClaudeTerminalService(private val project: Project) {
         onUnresponsive: (() -> Unit)? = null
     ): TerminalSession {
         return createWidget(
-            arrayOf("claude", "--worktree", worktreeName),
+            arrayOf("claude", "--worktree", worktreeName, "--name", worktreeName),
             parent, statusFile = statusFile, notifyFile = notifyFile,
             onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive        )
     }

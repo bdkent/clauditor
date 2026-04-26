@@ -131,16 +131,16 @@ class ClaudeSessionService(private val project: Project) : Disposable {
 
     fun startWatching() {
         val basePath = project.basePath ?: return
-        val projectDir = ClaudePathEncoder.projectDir(basePath)
+        val projectDirs = ClaudePathEncoder.projectDirCandidates(basePath)
 
         project.messageBus.connect(this)
             .subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {
                 override fun after(events: MutableList<out VFileEvent>) {
-                    val projectDirStr = projectDir.toString()
+                    val projectDirStrs = projectDirs.map { it.toString() }
                     val sessionsDirStr = ClaudePathEncoder.sessionsDir().toString()
                     val relevant = events.any { event ->
                         val path = event.path
-                        (path.startsWith(projectDirStr) && path.endsWith(".jsonl")) ||
+                        (projectDirStrs.any { path.startsWith(it) } && path.endsWith(".jsonl")) ||
                             path.endsWith("sessions-index.json") ||
                             ((event is VFileContentChangeEvent || event is VFileCreateEvent) &&
                                 path.startsWith(sessionsDirStr) &&
@@ -153,7 +153,7 @@ class ClaudeSessionService(private val project: Project) : Disposable {
             })
 
         val vfm = VirtualFileManager.getInstance()
-        vfm.refreshAndFindFileByNioPath(projectDir)
+        for (dir in projectDirs) vfm.refreshAndFindFileByNioPath(dir)
         vfm.refreshAndFindFileByNioPath(ClaudePathEncoder.sessionsDir())
 
         startPolling()
@@ -167,8 +167,8 @@ class ClaudeSessionService(private val project: Project) : Disposable {
     private fun checkForChanges() {
         val basePath = project.basePath ?: return
 
-        // Check main project dir and all worktree project dirs
-        val dirsToCheck = mutableListOf(ClaudePathEncoder.projectDir(basePath))
+        // Check main project dir(s) and all worktree project dirs
+        val dirsToCheck = ClaudePathEncoder.projectDirCandidates(basePath).toMutableList()
         try {
             for (name in ClaudePathEncoder.worktreeNames(basePath)) {
                 dirsToCheck.add(ClaudePathEncoder.worktreeProjectDir(basePath, name))
@@ -221,15 +221,9 @@ class ClaudeSessionService(private val project: Project) : Disposable {
             log.warn("Clauditor: project.basePath is null — cannot discover sessions")
             return emptyList()
         }
-        val projectDir = ClaudePathEncoder.projectDir(basePath)
-        val dirExists = Files.isDirectory(projectDir)
-        val jsonlCount = if (dirExists) {
-            try { Files.list(projectDir).use { s -> s.filter { it.toString().endsWith(".jsonl") }.count() } }
-            catch (_: Exception) { 0L }
-        } else 0L
-        log.info("Clauditor session discovery: basePath=$basePath projectDir=$projectDir exists=$dirExists jsonlFiles=$jsonlCount")
-        val mainProjectDir = ClaudePathEncoder.projectDir(basePath)
-        val mainSessions = loadSessionsFromDir(mainProjectDir, null)
+        val candidateDirs = ClaudePathEncoder.projectDirCandidates(basePath)
+        log.info("Clauditor session discovery: basePath=$basePath candidates=$candidateDirs")
+        val mainSessions = candidateDirs.flatMap { loadSessionsFromDir(it, null) }
         val wtSessions = try {
             ClaudePathEncoder.worktreeNames(basePath).flatMap { name ->
                 val wtProjectDir = ClaudePathEncoder.worktreeProjectDir(basePath, name)

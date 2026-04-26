@@ -12,6 +12,22 @@ object ClaudePathEncoder {
         return claudeHome.resolve("projects").resolve(encode(projectBasePath))
     }
 
+    /**
+     * Possible session-storage dirs for a given basePath. Claude Code's path encoder
+     * replaces both `/` and `.` with `-`; ours only replaces `/` (changing it globally
+     * historically broke external session detection — see commit 82818e5). For paths
+     * containing dots (most commonly worktrees opened standalone via "Open in IDE"),
+     * also probe the fully-encoded location so the new IDE finds its sessions.
+     */
+    fun projectDirCandidates(projectBasePath: String): List<Path> {
+        val primary = projectDir(projectBasePath)
+        if (!projectBasePath.contains('.')) return listOf(primary)
+        val claudeHome = Path.of(System.getProperty("user.home"), ".claude")
+        val altEncoded = projectBasePath.replace('/', '-').replace('.', '-')
+        val alt = claudeHome.resolve("projects").resolve(altEncoded)
+        return if (alt == primary) listOf(primary) else listOf(primary, alt)
+    }
+
     fun sessionsIndexPath(projectBasePath: String): Path =
         projectDir(projectBasePath).resolve("sessions-index.json")
 
