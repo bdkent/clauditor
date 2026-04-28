@@ -60,6 +60,12 @@ class ClaudeSessionVirtualFile(
 
     override fun hashCode(): Int = sessionKey.hashCode()
 
+    /** Build a fresh file pointing at the same session, preserving the bindings the editor needs to reconstruct correctly. */
+    fun copyForReopen(): ClaudeSessionVirtualFile = ClaudeSessionVirtualFile(baseName, sessionId).also {
+        it.workingDir = workingDir
+        it.isWorktreeSession = isWorktreeSession
+    }
+
     fun computeTabTitle(): String = when {
         isExternallyOpen -> "\u2197 $baseName"                    // ↗ external session
         isUnresponsive -> "$baseName \u2298"                       // ⊘ unresponsive

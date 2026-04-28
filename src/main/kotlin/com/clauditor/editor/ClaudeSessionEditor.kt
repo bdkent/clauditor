@@ -196,11 +196,7 @@ class ClaudeSessionEditor(
                 // Reopen the tab fresh — avoids loading panel state issues
                 val manager = FileEditorManager.getInstance(project)
                 manager.closeFile(file)
-                val newFile = ClaudeSessionVirtualFile(file.baseName, file.sessionId).apply {
-                    workingDir = file.workingDir
-                    isWorktreeSession = file.isWorktreeSession
-                }
-                manager.openFile(newFile, true)
+                manager.openFile(file.copyForReopen(), true)
             }
         }
 
@@ -434,11 +430,10 @@ class ClaudeSessionEditor(
         leftPanel.add(forkButton)
 
         reconnectButton.addActionListener {
-            val sessionId = file.sessionId ?: return@addActionListener
-            val baseName = file.baseName
+            if (file.sessionId == null) return@addActionListener
             val manager = FileEditorManager.getInstance(project)
             manager.closeFile(file)
-            manager.openFile(ClaudeSessionVirtualFile(baseName, sessionId), true)
+            manager.openFile(file.copyForReopen(), true)
         }
         leftPanel.add(reconnectButton)
 
