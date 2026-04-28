@@ -18,5 +18,5 @@ data class SessionDisplay(
             ?: firstPrompt.take(60).let { if (firstPrompt.length > 60) "$it..." else it }
 
     val tabTitle: String
-        get() = worktreeName ?: name ?: firstPrompt.take(40).let { if (firstPrompt.length > 40) "$it..." else it }
+        get() = name ?: worktreeName ?: firstPrompt.take(40).let { if (firstPrompt.length > 40) "$it..." else it }
 }
