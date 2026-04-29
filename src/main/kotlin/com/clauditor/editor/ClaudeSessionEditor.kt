@@ -15,6 +15,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
+import com.intellij.openapi.fileEditor.impl.FileEditorOpenOptions
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.project.Project
@@ -194,9 +195,7 @@ class ClaudeSessionEditor(
             isEnabled = false
             addActionListener {
                 // Reopen the tab fresh — avoids loading panel state issues
-                val manager = FileEditorManager.getInstance(project)
-                manager.closeFile(file)
-                manager.openFile(file.copyForReopen(), true)
+                reopenFreshAtSamePosition()
             }
         }
 
@@ -431,9 +430,7 @@ class ClaudeSessionEditor(
 
         reconnectButton.addActionListener {
             if (file.sessionId == null) return@addActionListener
-            val manager = FileEditorManager.getInstance(project)
-            manager.closeFile(file)
-            manager.openFile(file.copyForReopen(), true)
+            reopenFreshAtSamePosition()
         }
         leftPanel.add(reconnectButton)
 
@@ -1405,6 +1402,27 @@ class ClaudeSessionEditor(
                 }
             }
             contextBar.isVisible = true
+        }
+    }
+
+    /**
+     * Close the current tab and reopen a fresh copy at the same tab-strip position.
+     * `FileEditorManager.openFile` always appends to the end, so a naive close+open
+     * moves the tab to the rightmost slot — this preserves the original index.
+     */
+    private fun reopenFreshAtSamePosition() {
+        val managerEx = FileEditorManagerEx.getInstanceEx(project)
+        val newFile = file.copyForReopen()
+
+        val window = managerEx.windows.firstOrNull { it.getComposite(file) != null }
+        val savedIndex = window?.fileList?.indexOf(file) ?: -1
+
+        managerEx.closeFile(file)
+
+        if (window != null && savedIndex >= 0) {
+            managerEx.openFile(newFile, window, FileEditorOpenOptions(index = savedIndex))
+        } else {
+            managerEx.openFile(newFile, true)
         }
     }
 
