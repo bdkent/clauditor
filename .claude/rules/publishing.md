@@ -1,5 +1,20 @@
 # Publishing a release
 
+## 0. Authorization — read this first
+
+**A `publish` instruction authorizes exactly one release: the change that was on the table when the user said it.** It does not carry forward.
+
+Before pushing a `v*` tag, the user MUST have said "publish" (or equivalent) **about the specific change you are about to ship**, *after* the change is built and ready, *after* they have had the chance to test it. If any of those is not true, do not tag.
+
+Concretely, this means:
+
+- **Never** push a release tag in the same turn that you implemented the change. The user has not seen it run yet.
+- **Never** reuse a prior "publish" approval after writing new code. Each change requires its own approval.
+- **Never** publish "to fix what we just broke." A failed marketplace review is not implicit consent to ship the next attempt — it raises the bar, not lowers it.
+- When in doubt, build the plugin, commit, push to `main`, and **stop**. Tell the user the build is ready and ask whether to tag. The cost of asking is a single message; the cost of an unwanted release is a marketplace version that cannot be unpublished.
+
+The marketplace is append-only: every published version is permanent. Treat `git push origin v<version>` like `rm -rf` — irreversible, requires explicit fresh authorization, no exceptions.
+
 ## 1. Pre-flight
 
 Before bumping the version, ensure:
