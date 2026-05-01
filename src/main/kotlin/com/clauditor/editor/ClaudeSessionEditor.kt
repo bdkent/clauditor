@@ -55,6 +55,9 @@ class ClaudeSessionEditor(
     private val rootDisposable = Disposer.newDisposable("claude-editor-${file.sessionId ?: file.baseName}")
     private val loadingPanel = JBLoadingPanel(BorderLayout(), rootDisposable)
     private val loadingStopped = AtomicBoolean(false)
+    /** Child of rootDisposable; covers everything created per PTY session so refresh() can dispose it without tearing down the editor. */
+    private var sessionDisposable: Disposable = Disposer.newDisposable(rootDisposable, "claude-session")
+    private var currentContent: JComponent? = null
     private var focusComponent: JComponent? = null
     private var ptyProcess: PtyProcess? = null
     private var historyPanel: MessageHistoryPanel? = null
@@ -194,7 +197,7 @@ class ClaudeSessionEditor(
             isEnabled = false
             addActionListener {
                 // Reopen the tab fresh — avoids loading panel state issues
-                reopenFresh()
+                restartSession()
             }
         }
 
@@ -205,12 +208,13 @@ class ClaudeSessionEditor(
         inner.add(resumeButton)
 
         panel.add(inner)
+        currentContent = panel
         loadingPanel.add(panel, BorderLayout.CENTER)
         stopLoading()
 
         // Poll until the external session closes, then enable resume
         val sessionService = ClaudeSessionService.getInstance(project)
-        val pollAlarm = com.intellij.util.Alarm(com.intellij.util.Alarm.ThreadToUse.POOLED_THREAD, rootDisposable)
+        val pollAlarm = com.intellij.util.Alarm(com.intellij.util.Alarm.ThreadToUse.POOLED_THREAD, sessionDisposable)
         lateinit var poll: Runnable
         poll = Runnable {
             val stillExternal = com.clauditor.util.ClaudeProcessDetector
@@ -274,10 +278,10 @@ class ClaudeSessionEditor(
         }
 
         val session = when {
-            isFork -> terminalService.createForkWidget(file.forkFrom!!, rootDisposable, workingDir = file.workingDir, statusFile = statusFile, notifyFile = notifyFile, onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive)
-            file.sessionId != null -> terminalService.createResumeWidget(file.sessionId!!, rootDisposable, workingDir = file.workingDir, statusFile = statusFile, notifyFile = notifyFile, onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive)
-            isNewWorktree -> terminalService.createNewWorktreeWidget(file.newWorktreeName!!, rootDisposable, statusFile = statusFile, notifyFile = notifyFile, onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive)
-            else -> terminalService.createNewNamedSessionWidget(file.baseName, rootDisposable, workingDir = file.workingDir, statusFile = statusFile, notifyFile = notifyFile, onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive)
+            isFork -> terminalService.createForkWidget(file.forkFrom!!, sessionDisposable, workingDir = file.workingDir, statusFile = statusFile, notifyFile = notifyFile, onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive)
+            file.sessionId != null -> terminalService.createResumeWidget(file.sessionId!!, sessionDisposable, workingDir = file.workingDir, statusFile = statusFile, notifyFile = notifyFile, onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive)
+            isNewWorktree -> terminalService.createNewWorktreeWidget(file.newWorktreeName!!, sessionDisposable, statusFile = statusFile, notifyFile = notifyFile, onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive)
+            else -> terminalService.createNewNamedSessionWidget(file.baseName, sessionDisposable, workingDir = file.workingDir, statusFile = statusFile, notifyFile = notifyFile, onActiveChanged = onActiveChanged, onUserInput = onUserInput, onUnresponsive = onUnresponsive)
         }
 
         ptyProcess = session.process
@@ -303,7 +307,7 @@ class ClaudeSessionEditor(
         val toolbar = createToolbar()
 
         // Message history side panel
-        historyPanel = MessageHistoryPanel(project, session.widget, { file.sessionId }, rootDisposable)
+        historyPanel = MessageHistoryPanel(project, session.widget, { file.sessionId }, sessionDisposable)
         historySplitter = JBSplitter(false, 0.8f).apply {
             firstComponent = session.widget.component
             secondComponent = null  // starts closed
@@ -325,6 +329,7 @@ class ClaudeSessionEditor(
         contentPanel.add(historySplitter!!, BorderLayout.CENTER)
         contentPanel.add(contextBar, BorderLayout.SOUTH)
 
+        currentContent = contentPanel
         loadingPanel.add(contentPanel, BorderLayout.CENTER)
 
         // Drag-and-drop: accept files dropped onto the terminal
@@ -336,7 +341,7 @@ class ClaudeSessionEditor(
 
         // Status monitoring
         statusService.startMonitoring(monitoringId, statusFile, notifyFile)
-        Disposer.register(rootDisposable, Disposable { statusService.stopMonitoring(monitoringId) })
+        Disposer.register(sessionDisposable, Disposable { statusService.stopMonitoring(monitoringId) })
 
         val statusListener: (String, ClaudeStatus?) -> Unit = { sid, status ->
             if (sid == monitoringId || sid == file.sessionId) {
@@ -368,7 +373,7 @@ class ClaudeSessionEditor(
             }
         }
         statusService.addStatusListener(statusListener)
-        Disposer.register(rootDisposable, Disposable { statusService.removeStatusListener(statusListener) })
+        Disposer.register(sessionDisposable, Disposable { statusService.removeStatusListener(statusListener) })
         // Deliver cached state immediately — otherwise a re-instantiated editor
         // stays invisible until the next distinct status update arrives.
         statusService.getStatus(monitoringId)?.let { statusListener(monitoringId, it) }
@@ -390,7 +395,7 @@ class ClaudeSessionEditor(
                 }
             }
         }
-        project.messageBus.connect(rootDisposable).subscribe(
+        project.messageBus.connect(sessionDisposable).subscribe(
             FileEditorManagerListener.FILE_EDITOR_MANAGER, selectionListener
         )
 
@@ -429,7 +434,7 @@ class ClaudeSessionEditor(
 
         reconnectButton.addActionListener {
             if (file.sessionId == null) return@addActionListener
-            reopenFresh()
+            restartSession()
         }
         leftPanel.add(reconnectButton)
 
@@ -616,7 +621,7 @@ class ClaudeSessionEditor(
             isEditable = false
             border = JBUI.Borders.empty(8)
         }
-        Disposer.register(rootDisposable, htmlPane)
+        Disposer.register(sessionDisposable, htmlPane)
 
         val scrollPane = javax.swing.JScrollPane(htmlPane).apply {
             preferredSize = java.awt.Dimension(550, 350)
@@ -722,7 +727,7 @@ class ClaudeSessionEditor(
             if (sid == file.sessionId) refresh()
         }
         statusService.addStatusListener(listener)
-        Disposer.register(rootDisposable, Disposable { statusService.removeStatusListener(listener) })
+        Disposer.register(sessionDisposable, Disposable { statusService.removeStatusListener(listener) })
 
         commitButton.addActionListener {
             ApplicationManager.getApplication().executeOnPooledThread {
@@ -989,7 +994,7 @@ class ClaudeSessionEditor(
             if (sid == file.sessionId) refreshBranchStatus()
         }
         statusService.addStatusListener(listener)
-        Disposer.register(rootDisposable, Disposable { statusService.removeStatusListener(listener) })
+        Disposer.register(sessionDisposable, Disposable { statusService.removeStatusListener(listener) })
 
         val openInIdeButton = javax.swing.JButton("Open in IDE").apply {
             isFocusable = false
@@ -1242,7 +1247,7 @@ class ClaudeSessionEditor(
             }
         }
         statusService.addStatusListener(listener)
-        Disposer.register(rootDisposable, Disposable { statusService.removeStatusListener(listener) })
+        Disposer.register(sessionDisposable, Disposable { statusService.removeStatusListener(listener) })
 
         return combo
     }
@@ -1347,7 +1352,7 @@ class ClaudeSessionEditor(
             }
         }
         sessionService.addChangeListener(linkListener)
-        Disposer.register(rootDisposable, Disposable { sessionService.removeChangeListener(linkListener) })
+        Disposer.register(sessionDisposable, Disposable { sessionService.removeChangeListener(linkListener) })
     }
 
     private fun stopLoading() {
@@ -1405,17 +1410,58 @@ class ClaudeSessionEditor(
     }
 
     /**
-     * Close the current tab and reopen a fresh copy of the session.
-     * Note: `FileEditorManager.openFile` always appends the new tab to the end
-     * of the strip, so refreshing a tab that wasn't already last will move it
-     * to the rightmost slot. The IntelliJ APIs that would let us preserve the
-     * original tab index (`FileEditorOpenOptions`, etc.) live in `.impl.`
-     * packages and are off-limits per `.claude/rules/no-internal-api.md`.
+     * Tear down the PTY and all session-scoped state, then re-run startTerminalSession()
+     * inside the same FileEditor. Keeping the editor instance means the tab stays put —
+     * we don't have to close+reopen the file (which would append the tab to the end of
+     * the strip).
      */
-    private fun reopenFresh() {
-        val manager = FileEditorManager.getInstance(project)
-        manager.closeFile(file)
-        manager.openFile(file.copyForReopen(), true)
+    private fun restartSession() {
+        try {
+            ptyProcess?.destroyForcibly()
+        } catch (_: Exception) {}
+        ptyProcess = null
+
+        Disposer.dispose(sessionDisposable)
+        sessionDisposable = Disposer.newDisposable(rootDisposable, "claude-session")
+
+        focusComponent = null
+        historyPanel = null
+        historySplitter = null
+        summarizeButton = null
+        maxEffortButton = null
+        transientCache.clear()
+        lastTitle = null
+
+        // Reset class-level UI components so they don't show stale state until the new PTY reports back
+        reconnectButton.icon = AllIcons.Actions.Refresh
+        reconnectButton.toolTipText = "Reconnect — close and resume this session"
+        contextBar.isVisible = false
+        contextProgress.value = 0
+        contextProgress.string = "Context: —"
+        effortLabel.text = ""
+        thinkingLabel.text = ""
+        remainingLabel.text = ""
+        costLabel.text = ""
+        versionLabel.text = ""
+        versionLinkTarget = null
+
+        currentContent?.let { loadingPanel.remove(it) }
+        currentContent = null
+
+        file.isThinking = false
+        file.notifyState = null
+        file.isUnresponsive = false
+        file.isExternallyOpen = false
+        refreshTabTitle()
+
+        loadingStopped.set(false)
+        loadingPanel.startLoading()
+        loadingPanel.revalidate()
+        loadingPanel.repaint()
+
+        startTerminalSession()
+        // Cover the external→resume path: showExternalPanel skipped persistence.add, but now we have a live PTY.
+        file.sessionId?.let { OpenSessionsPersistence.getInstance(project).add(it) }
     }
 
     private fun refreshTabTitle() {
