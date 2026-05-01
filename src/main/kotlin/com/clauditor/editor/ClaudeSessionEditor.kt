@@ -15,7 +15,6 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
-import com.intellij.openapi.fileEditor.impl.FileEditorOpenOptions
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.project.Project
@@ -195,7 +194,7 @@ class ClaudeSessionEditor(
             isEnabled = false
             addActionListener {
                 // Reopen the tab fresh — avoids loading panel state issues
-                reopenFreshAtSamePosition()
+                reopenFresh()
             }
         }
 
@@ -430,7 +429,7 @@ class ClaudeSessionEditor(
 
         reconnectButton.addActionListener {
             if (file.sessionId == null) return@addActionListener
-            reopenFreshAtSamePosition()
+            reopenFresh()
         }
         leftPanel.add(reconnectButton)
 
@@ -1406,24 +1405,17 @@ class ClaudeSessionEditor(
     }
 
     /**
-     * Close the current tab and reopen a fresh copy at the same tab-strip position.
-     * `FileEditorManager.openFile` always appends to the end, so a naive close+open
-     * moves the tab to the rightmost slot — this preserves the original index.
+     * Close the current tab and reopen a fresh copy of the session.
+     * Note: `FileEditorManager.openFile` always appends the new tab to the end
+     * of the strip, so refreshing a tab that wasn't already last will move it
+     * to the rightmost slot. The IntelliJ APIs that would let us preserve the
+     * original tab index (`FileEditorOpenOptions`, etc.) live in `.impl.`
+     * packages and are off-limits per `.claude/rules/no-internal-api.md`.
      */
-    private fun reopenFreshAtSamePosition() {
-        val managerEx = FileEditorManagerEx.getInstanceEx(project)
-        val newFile = file.copyForReopen()
-
-        val window = managerEx.windows.firstOrNull { it.getComposite(file) != null }
-        val savedIndex = window?.fileList?.indexOf(file) ?: -1
-
-        managerEx.closeFile(file)
-
-        if (window != null && savedIndex >= 0) {
-            managerEx.openFile(newFile, window, FileEditorOpenOptions(index = savedIndex))
-        } else {
-            managerEx.openFile(newFile, true)
-        }
+    private fun reopenFresh() {
+        val manager = FileEditorManager.getInstance(project)
+        manager.closeFile(file)
+        manager.openFile(file.copyForReopen(), true)
     }
 
     private fun refreshTabTitle() {
