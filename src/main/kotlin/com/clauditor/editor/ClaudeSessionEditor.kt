@@ -66,10 +66,7 @@ class ClaudeSessionEditor(
     private val transientCache = mutableMapOf<String, Pair<Long, String>>() // key -> (mtime, result)
     private var summarizeButton: javax.swing.JButton? = null
     private var maxEffortButton: javax.swing.JButton? = null
-    private val reconnectButton = javax.swing.JButton(com.intellij.icons.AllIcons.Actions.Refresh).apply {
-        toolTipText = "Reconnect — close and resume this session"
-        isFocusable = false
-    }
+    private var reconnectButton: javax.swing.JButton? = null
     private val contextProgress = JProgressBar(0, 100).apply {
         setUI(RoundedProgressBarUI())
         isStringPainted = true
@@ -253,8 +250,10 @@ class ClaudeSessionEditor(
                 stopLoading()
                 if (file.isUnresponsive) {
                     file.isUnresponsive = false
-                    reconnectButton.icon = AllIcons.Actions.Refresh
-                    reconnectButton.toolTipText = "Reconnect — close and resume this session"
+                    reconnectButton?.let {
+                        it.icon = AllIcons.Actions.Refresh
+                        it.toolTipText = "Reconnect — close and resume this session"
+                    }
                 }
             }
             summarizeButton?.isEnabled = !active
@@ -272,8 +271,10 @@ class ClaudeSessionEditor(
 
         val onUnresponsive: () -> Unit = {
             file.isUnresponsive = true
-            reconnectButton.toolTipText = "Session unresponsive — click to reconnect"
-            reconnectButton.icon = AllIcons.General.Error
+            reconnectButton?.let {
+                it.toolTipText = "Session unresponsive — click to reconnect"
+                it.icon = AllIcons.General.Error
+            }
             refreshTabTitle()
         }
 
@@ -432,9 +433,13 @@ class ClaudeSessionEditor(
         }
         leftPanel.add(forkButton)
 
-        reconnectButton.addActionListener {
-            if (file.sessionId == null) return@addActionListener
-            restartSession()
+        reconnectButton = javax.swing.JButton(com.intellij.icons.AllIcons.Actions.Refresh).apply {
+            toolTipText = "Reconnect — close and resume this session"
+            isFocusable = false
+            addActionListener {
+                if (file.sessionId == null) return@addActionListener
+                restartSession()
+            }
         }
         leftPanel.add(reconnectButton)
 
@@ -1396,13 +1401,17 @@ class ClaudeSessionEditor(
                 if (hasUpdate) {
                     versionLabel.text = "v$current (update: v$latest)"
                     versionLabel.foreground = COLOR_YELLOW
-                    reconnectButton.icon = com.intellij.icons.AllIcons.Actions.ForceRefresh
-                    reconnectButton.toolTipText = "Reconnect — update available (v$current \u2192 v$latest)"
+                    reconnectButton?.let {
+                        it.icon = com.intellij.icons.AllIcons.Actions.ForceRefresh
+                        it.toolTipText = "Reconnect — update available (v$current \u2192 v$latest)"
+                    }
                 } else {
                     versionLabel.text = "v$current"
                     versionLabel.foreground = UIManager.getColor("Label.disabledForeground")
-                    reconnectButton.icon = com.intellij.icons.AllIcons.Actions.Refresh
-                    reconnectButton.toolTipText = "Reconnect — close and resume this session"
+                    reconnectButton?.let {
+                        it.icon = com.intellij.icons.AllIcons.Actions.Refresh
+                        it.toolTipText = "Reconnect — close and resume this session"
+                    }
                 }
             }
             contextBar.isVisible = true
@@ -1432,9 +1441,8 @@ class ClaudeSessionEditor(
         transientCache.clear()
         lastTitle = null
 
-        // Reset class-level UI components so they don't show stale state until the new PTY reports back
-        reconnectButton.icon = AllIcons.Actions.Refresh
-        reconnectButton.toolTipText = "Reconnect — close and resume this session"
+        // Reset class-level UI components so they don't show stale state until the new PTY reports back.
+        // (reconnectButton is rebuilt fresh inside createToolbar — nothing to reset on it here.)
         contextBar.isVisible = false
         contextProgress.value = 0
         contextProgress.string = "Context: —"
