@@ -113,13 +113,20 @@ class SessionListPanel(
         }
         val newSessionAction = object : AnAction(actionTitle, actionDesc, actionIcon) {
             override fun actionPerformed(e: AnActionEvent) {
-                val name = Messages.showInputDialog(
-                    project,
-                    dialogPrompt,
-                    dialogTitle,
-                    Messages.getQuestionIcon()
-                )?.trim().orEmpty()
-                if (name.isNotEmpty()) onNewSession(name)
+                if (worktreeMode) {
+                    val dialog = WorktreeNameDialog(project)
+                    if (dialog.showAndGet()) {
+                        dialog.enteredName?.takeIf { it.isNotEmpty() }?.let { onNewSession(it) }
+                    }
+                } else {
+                    val name = Messages.showInputDialog(
+                        project,
+                        dialogPrompt,
+                        dialogTitle,
+                        Messages.getQuestionIcon()
+                    )?.trim().orEmpty()
+                    if (name.isNotEmpty()) onNewSession(name)
+                }
             }
         }
         val refreshAction = object : AnAction("Refresh", "Refresh session list", AllIcons.Actions.Refresh) {
