@@ -32,6 +32,7 @@ class ClauditorSettingsConfigurable : Configurable {
     private var envDisableCachingCheckbox: JBCheckBox? = null
     private var customEnvVarsArea: JBTextArea? = null
     private var refreshIntervalSpinner: JSpinner? = null
+    private var branchRefreshSpinner: JSpinner? = null
 
     override fun getDisplayName(): String = "Clauditor"
 
@@ -56,6 +57,10 @@ class ClauditorSettingsConfigurable : Configurable {
 
         refreshIntervalSpinner = JSpinner(SpinnerNumberModel(60, 0, 3600, 10)).apply {
             toolTipText = "Re-run the status line command every N seconds. 0 means event-driven only (default updates after each assistant message)."
+        }
+
+        branchRefreshSpinner = JSpinner(SpinnerNumberModel(10, 0, 600, 5)).apply {
+            toolTipText = "Re-query git state for the worktree/git toolbars every N seconds. 0 = refresh only on tab focus and Claude status events. Takes effect on next session restart."
         }
 
         envColortermCheckbox = JBCheckBox("COLORTERM=truecolor — Enable true color support in terminal output")
@@ -93,6 +98,9 @@ class ClauditorSettingsConfigurable : Configurable {
             .addLabeledComponent(JBLabel("Status line refresh (sec):"), refreshIntervalSpinner!!, 1, false)
             .addComponentToRightColumn(createHint("Re-run status line every N seconds. 0 = event-driven only. Requires CLI 2.1.97+"), 0)
             .addSeparator()
+            .addLabeledComponent(JBLabel("Branch status refresh (sec):"), branchRefreshSpinner!!, 1, false)
+            .addComponentToRightColumn(createHint("Re-query git for the worktree/git toolbars every N seconds. 0 = focus + status events only."), 0)
+            .addSeparator()
             .addComponent(JBLabel("Environment Variables").apply {
                 font = font.deriveFont(java.awt.Font.BOLD)
                 border = JBUI.Borders.emptyTop(8)
@@ -121,7 +129,8 @@ class ClauditorSettingsConfigurable : Configurable {
             envSkipUpdateCheckbox?.isSelected != settings.state.envSkipUpdateCheck ||
             envDisableCachingCheckbox?.isSelected != settings.state.envDisablePromptCaching ||
             customEnvVarsArea?.text?.trim() != settings.state.customEnvVars ||
-            (refreshIntervalSpinner?.value as? Int) != settings.state.statusLineRefreshInterval
+            (refreshIntervalSpinner?.value as? Int) != settings.state.statusLineRefreshInterval ||
+            (branchRefreshSpinner?.value as? Int) != settings.state.branchStatusRefreshSeconds
     }
 
     override fun apply() {
@@ -136,6 +145,7 @@ class ClauditorSettingsConfigurable : Configurable {
         settings.state.envDisablePromptCaching = envDisableCachingCheckbox?.isSelected ?: false
         settings.state.customEnvVars = customEnvVarsArea?.text?.trim() ?: ""
         settings.state.statusLineRefreshInterval = (refreshIntervalSpinner?.value as? Int) ?: 60
+        settings.state.branchStatusRefreshSeconds = (branchRefreshSpinner?.value as? Int) ?: 10
     }
 
     override fun reset() {
@@ -150,6 +160,7 @@ class ClauditorSettingsConfigurable : Configurable {
         envDisableCachingCheckbox?.isSelected = settings.state.envDisablePromptCaching
         customEnvVarsArea?.text = settings.state.customEnvVars
         refreshIntervalSpinner?.value = settings.state.statusLineRefreshInterval
+        branchRefreshSpinner?.value = settings.state.branchStatusRefreshSeconds
     }
 
     override fun disposeUIResources() {
@@ -164,6 +175,7 @@ class ClauditorSettingsConfigurable : Configurable {
         envDisableCachingCheckbox = null
         customEnvVarsArea = null
         refreshIntervalSpinner = null
+        branchRefreshSpinner = null
     }
 
     private fun createHint(text: String): JComponent {

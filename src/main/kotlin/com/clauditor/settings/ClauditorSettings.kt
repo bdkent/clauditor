@@ -37,6 +37,9 @@ class ClauditorSettings : PersistentStateComponent<ClauditorSettings.State> {
 
         /** Status line refresh interval in seconds. 0 means event-driven only. */
         @JvmField var statusLineRefreshInterval: Int = 60
+
+        /** Seconds between auto-refreshes of the git/worktree toolbar branch status. 0 = focus + status events only. */
+        @JvmField var branchStatusRefreshSeconds: Int = 10
     }
 
     private var myState = State()

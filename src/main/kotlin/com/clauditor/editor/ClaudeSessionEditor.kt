@@ -735,6 +735,8 @@ class ClaudeSessionEditor(
         statusService.addStatusListener(listener)
         Disposer.register(sessionDisposable, Disposable { statusService.removeStatusListener(listener) })
 
+        wireToolbarRefresh(::refresh)
+
         commitButton.addActionListener {
             ApplicationManager.getApplication().executeOnPooledThread {
                 try {
@@ -1017,6 +1019,8 @@ class ClaudeSessionEditor(
         statusService.addStatusListener(listener)
         Disposer.register(sessionDisposable, Disposable { statusService.removeStatusListener(listener) })
 
+        wireToolbarRefresh(::refreshBranchStatus)
+
         val openInIdeButton = javax.swing.JButton("Open in IDE").apply {
             isFocusable = false
             toolTipText = "Open worktree directory as a separate project"
@@ -1074,6 +1078,37 @@ class ClaudeSessionEditor(
         bar.add(leftPanel, BorderLayout.WEST)
         bar.add(rightPanel, BorderLayout.EAST)
         return bar
+    }
+
+    /**
+     * Wire periodic + tab-focus refresh for a toolbar's status callback.
+     * The ClaudeStatusService listener already covers the active case (status changes
+     * while Claude is working); this fills the gap when Claude is idle but external
+     * state (commits in the terminal, remote pulls, finished rebases) can drift.
+     */
+    private fun wireToolbarRefresh(refresh: () -> Unit) {
+        val refreshAlarm = com.intellij.util.Alarm(com.intellij.util.Alarm.ThreadToUse.POOLED_THREAD, sessionDisposable)
+        lateinit var tick: Runnable
+        tick = Runnable {
+            refresh()
+            val sec = com.clauditor.settings.ClauditorSettings.getInstance().state.branchStatusRefreshSeconds
+            if (sec > 0 && !refreshAlarm.isDisposed) {
+                refreshAlarm.addRequest(tick, sec * 1000)
+            }
+        }
+        val initialSec = com.clauditor.settings.ClauditorSettings.getInstance().state.branchStatusRefreshSeconds
+        if (initialSec > 0) {
+            refreshAlarm.addRequest(tick, initialSec * 1000)
+        }
+
+        val selectionListener = object : FileEditorManagerListener {
+            override fun selectionChanged(event: com.intellij.openapi.fileEditor.FileEditorManagerEvent) {
+                if (event.newFile == file) refresh()
+            }
+        }
+        project.messageBus.connect(sessionDisposable).subscribe(
+            FileEditorManagerListener.FILE_EDITOR_MANAGER, selectionListener
+        )
     }
 
     private fun showNotification(message: String, type: NotificationType) {
