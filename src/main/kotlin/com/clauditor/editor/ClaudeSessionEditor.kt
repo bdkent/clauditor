@@ -21,6 +21,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.ui.JBColor
 import com.intellij.ui.JBSplitter
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBLoadingPanel
@@ -867,6 +868,10 @@ class ClaudeSessionEditor(
                     val counts = execGit(worktreePath, "rev-list", "--left-right", "--count", "$mainBranch...$wtBranch").trim()
                     val (behind, ahead) = counts.split("\t").map { it.trim().toIntOrNull() ?: 0 }
                     val dirty = execGit(worktreePath, "status", "--porcelain").trim().isNotEmpty()
+                    val rebaseMergeDir = execGit(worktreePath, "rev-parse", "--git-path", "rebase-merge").trim()
+                    val rebaseApplyDir = execGit(worktreePath, "rev-parse", "--git-path", "rebase-apply").trim()
+                    val rebasing = (rebaseMergeDir.isNotEmpty() && java.nio.file.Files.exists(java.nio.file.Path.of(worktreePath).resolve(rebaseMergeDir))) ||
+                        (rebaseApplyDir.isNotEmpty() && java.nio.file.Files.exists(java.nio.file.Path.of(worktreePath).resolve(rebaseApplyDir)))
 
                     currentWtBranch = wtBranch
                     currentMainBranch = mainBranch
@@ -882,7 +887,9 @@ class ClaudeSessionEditor(
                     val worktreeName = worktreePath.substringAfterLast('/')
                     val statusText = buildString {
                         append(worktreeName)
-                        if (ahead > 0 || behind > 0) {
+                        if (rebasing) {
+                            append("  \u2014 REBASING")
+                        } else if (ahead > 0 || behind > 0) {
                             append("  ")
                             if (ahead > 0) append("\u2191$ahead")
                             if (ahead > 0 && behind > 0) append(" ")
@@ -892,31 +899,40 @@ class ClaudeSessionEditor(
                     }
                     ApplicationManager.getApplication().invokeLater {
                         statusLabel.text = statusText
+                        statusLabel.foreground = if (rebasing) JBColor.RED
+                            else UIManager.getColor("Label.disabledForeground")
 
                         // Update button: enabled when worktree is behind main
-                        updateButton.isEnabled = behind > 0 && !dirty
+                        updateButton.isEnabled = !rebasing && behind > 0 && !dirty
                         updateButton.toolTipText = when {
+                            rebasing -> "Rebase in progress \u2014 resolve in the terminal with git rebase --continue or --abort"
                             dirty -> "Commit or stash worktree changes first"
                             behind > 0 -> "Rebase $wtBranch onto $behind new commit${if (behind > 1) "s" else ""} from $mainBranch"
                             else -> "Up to date with $mainBranch"
                         }
 
                         // Merge button: enabled when ahead > 0 and behind == 0 (fast-forward possible)
-                        mergeButton.isEnabled = ahead > 0 && behind == 0
+                        mergeButton.isEnabled = !rebasing && ahead > 0 && behind == 0
                         mergeButton.toolTipText = when {
+                            rebasing -> "Rebase in progress \u2014 resolve in the terminal first"
                             ahead == 0 -> "Nothing to merge"
                             behind > 0 -> "Update worktree first \u2014 $mainBranch has diverged"
                             else -> "Fast-forward $ahead commit${if (ahead > 1) "s" else ""} into $mainBranch"
                         }
 
                         // Commit button: enabled when there are uncommitted changes
-                        commitButton.isEnabled = dirty
-                        commitButton.toolTipText = if (dirty) "Ask Claude to commit changes" else "No uncommitted changes"
+                        commitButton.isEnabled = !rebasing && dirty
+                        commitButton.toolTipText = when {
+                            rebasing -> "Rebase in progress \u2014 resolve in the terminal first"
+                            dirty -> "Ask Claude to commit changes"
+                            else -> "No uncommitted changes"
+                        }
 
                         // PR button: visible for GitHub repos, enabled when there are commits to push
                         prButton.isVisible = isGitHub
-                        prButton.isEnabled = isGitHub && ahead > 0 && !dirty
+                        prButton.isEnabled = !rebasing && isGitHub && ahead > 0 && !dirty
                         prButton.toolTipText = when {
+                            rebasing -> "Rebase in progress \u2014 resolve in the terminal first"
                             !isGitHub -> "Not a GitHub repository"
                             dirty -> "Commit changes first"
                             ahead == 0 -> "No commits to push"
