@@ -38,6 +38,7 @@ class MessageHistoryPanel(
     private val project: Project,
     private val widget: JBTerminalWidget,
     private val sessionIdProvider: () -> String?,
+    private val workingDirProvider: () -> String?,
     parent: Disposable
 ) : JPanel(BorderLayout()), Disposable {
 
@@ -89,9 +90,10 @@ class MessageHistoryPanel(
 
     private fun loadMessages() {
         val sessionId = sessionIdProvider() ?: return
-        val basePath = project.basePath ?: return
-        val jsonlPath = ClaudePathEncoder.projectDir(basePath).resolve("$sessionId.jsonl")
-        if (!Files.exists(jsonlPath)) return
+        val cwd = workingDirProvider() ?: project.basePath ?: return
+        val jsonlPath = ClaudePathEncoder.projectDirCandidates(cwd)
+            .map { it.resolve("$sessionId.jsonl") }
+            .firstOrNull { Files.exists(it) } ?: return
 
         val entries = mutableListOf<MessageEntry>()
 

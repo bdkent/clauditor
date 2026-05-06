@@ -309,7 +309,7 @@ class ClaudeSessionEditor(
         val toolbar = createToolbar()
 
         // Message history side panel
-        historyPanel = MessageHistoryPanel(project, session.widget, { file.sessionId }, sessionDisposable)
+        historyPanel = MessageHistoryPanel(project, session.widget, { file.sessionId }, { file.workingDir }, sessionDisposable)
         historySplitter = JBSplitter(false, 0.8f).apply {
             firstComponent = session.widget.component
             secondComponent = null  // starts closed
@@ -864,84 +864,89 @@ class ClaudeSessionEditor(
         fun refreshBranchStatus() {
             if (worktreePath == null || projectPath == null) return
             ApplicationManager.getApplication().executeOnPooledThread {
-                try {
-                    val wtBranch = execGit(worktreePath, "branch", "--show-current").trim()
-                    val mainBranch = execGit(projectPath, "branch", "--show-current").trim()
-                    val counts = execGit(worktreePath, "rev-list", "--left-right", "--count", "$mainBranch...$wtBranch").trim()
-                    val (behind, ahead) = counts.split("\t").map { it.trim().toIntOrNull() ?: 0 }
-                    val dirty = execGit(worktreePath, "status", "--porcelain").trim().isNotEmpty()
-                    val rebaseMergeDir = execGit(worktreePath, "rev-parse", "--git-path", "rebase-merge").trim()
-                    val rebaseApplyDir = execGit(worktreePath, "rev-parse", "--git-path", "rebase-apply").trim()
-                    val rebasing = (rebaseMergeDir.isNotEmpty() && java.nio.file.Files.exists(java.nio.file.Path.of(worktreePath).resolve(rebaseMergeDir))) ||
-                        (rebaseApplyDir.isNotEmpty() && java.nio.file.Files.exists(java.nio.file.Path.of(worktreePath).resolve(rebaseApplyDir)))
+                val info = computeWorktreeInfo(worktreePath, projectPath)
+                ApplicationManager.getApplication().invokeLater {
+                    info.wtBranch?.let { currentWtBranch = it }
+                    info.mainBranch?.let { currentMainBranch = it }
+                    currentAhead = info.ahead
+                    currentBehind = info.behind
+                    hasUncommitted = info.dirty
+                    if (info.isGitHub) isGitHub = true
 
-                    currentWtBranch = wtBranch
-                    currentMainBranch = mainBranch
-                    currentAhead = ahead
-                    currentBehind = behind
-                    hasUncommitted = dirty
-
-                    if (!isGitHub) {
-                        val remoteUrl = execGit(worktreePath, "remote", "get-url", "origin").trim()
-                        isGitHub = remoteUrl.contains("github.com")
-                    }
-
-                    val worktreeName = worktreePath.substringAfterLast('/')
-                    val statusText = buildString {
-                        append(worktreeName)
-                        if (rebasing) {
-                            append("  \u2014 REBASING")
-                        } else if (ahead > 0 || behind > 0) {
-                            append("  ")
-                            if (ahead > 0) append("\u2191$ahead")
-                            if (ahead > 0 && behind > 0) append(" ")
-                            if (behind > 0) append("\u2193$behind")
-                            append(" vs $mainBranch")
+                    statusLabel.text = buildString {
+                        append(info.name)
+                        when (info.state) {
+                            WorktreeState.REBASING -> append("  \u2014 REBASING")
+                            WorktreeState.MERGING -> append("  \u2014 MERGING")
+                            WorktreeState.CHERRY_PICKING -> append("  \u2014 CHERRY-PICKING")
+                            WorktreeState.DETACHED -> append("  \u2014 detached HEAD")
+                            WorktreeState.MISSING -> append("  \u2014 missing")
+                            WorktreeState.UNKNOWN -> append("  \u2014 status unavailable")
+                            WorktreeState.OK -> {
+                                if (info.ahead > 0 || info.behind > 0) {
+                                    append("  ")
+                                    if (info.ahead > 0) append("\u2191${info.ahead}")
+                                    if (info.ahead > 0 && info.behind > 0) append(" ")
+                                    if (info.behind > 0) append("\u2193${info.behind}")
+                                    info.mainBranch?.let { append(" vs $it") }
+                                }
+                            }
                         }
                     }
-                    ApplicationManager.getApplication().invokeLater {
-                        statusLabel.text = statusText
-                        statusLabel.foreground = if (rebasing) JBColor.RED
-                            else UIManager.getColor("Label.disabledForeground")
+                    statusLabel.foreground = if (info.state == WorktreeState.OK)
+                        UIManager.getColor("Label.disabledForeground") else JBColor.RED
+                    statusLabel.toolTipText = when (info.state) {
+                        WorktreeState.UNKNOWN -> "Status unavailable: ${info.errorDetail ?: "unknown error"}"
+                        WorktreeState.MISSING -> info.errorDetail
+                        else -> null
+                    }
 
-                        // Update button: enabled when worktree is behind main
-                        updateButton.isEnabled = !rebasing && behind > 0 && !dirty
+                    if (info.state != WorktreeState.OK) {
+                        val frozenTip = when (info.state) {
+                            WorktreeState.REBASING -> "Rebase in progress \u2014 resolve in the terminal with git rebase --continue or --abort"
+                            WorktreeState.MERGING -> "Merge in progress \u2014 resolve in the terminal with git merge --continue or --abort"
+                            WorktreeState.CHERRY_PICKING -> "Cherry-pick in progress \u2014 resolve in the terminal with git cherry-pick --continue or --abort"
+                            WorktreeState.DETACHED -> "Detached HEAD \u2014 check out a branch first"
+                            WorktreeState.MISSING -> "Worktree directory not found"
+                            WorktreeState.UNKNOWN -> "Status unavailable: ${info.errorDetail ?: "unknown error"}"
+                            WorktreeState.OK -> ""
+                        }
+                        listOf(commitButton, updateButton, mergeButton, prButton).forEach {
+                            it.isEnabled = false
+                            it.toolTipText = frozenTip
+                        }
+                        prButton.isVisible = info.isGitHub
+                    } else {
+                        val wtBranch = info.wtBranch ?: ""
+                        val mainBranch = info.mainBranch ?: ""
+
+                        updateButton.isEnabled = info.behind > 0 && !info.dirty
                         updateButton.toolTipText = when {
-                            rebasing -> "Rebase in progress \u2014 resolve in the terminal with git rebase --continue or --abort"
-                            dirty -> "Commit or stash worktree changes first"
-                            behind > 0 -> "Rebase $wtBranch onto $behind new commit${if (behind > 1) "s" else ""} from $mainBranch"
+                            info.dirty -> "Commit or stash worktree changes first"
+                            info.behind > 0 -> "Rebase $wtBranch onto ${info.behind} new commit${if (info.behind > 1) "s" else ""} from $mainBranch"
                             else -> "Up to date with $mainBranch"
                         }
 
-                        // Merge button: enabled when ahead > 0 and behind == 0 (fast-forward possible)
-                        mergeButton.isEnabled = !rebasing && ahead > 0 && behind == 0
+                        mergeButton.isEnabled = info.ahead > 0 && info.behind == 0
                         mergeButton.toolTipText = when {
-                            rebasing -> "Rebase in progress \u2014 resolve in the terminal first"
-                            ahead == 0 -> "Nothing to merge"
-                            behind > 0 -> "Update worktree first \u2014 $mainBranch has diverged"
-                            else -> "Fast-forward $ahead commit${if (ahead > 1) "s" else ""} into $mainBranch"
+                            info.ahead == 0 -> "Nothing to merge"
+                            info.behind > 0 -> "Update worktree first \u2014 $mainBranch has diverged"
+                            else -> "Fast-forward ${info.ahead} commit${if (info.ahead > 1) "s" else ""} into $mainBranch"
                         }
 
-                        // Commit button: enabled when there are uncommitted changes
-                        commitButton.isEnabled = !rebasing && dirty
-                        commitButton.toolTipText = when {
-                            rebasing -> "Rebase in progress \u2014 resolve in the terminal first"
-                            dirty -> "Ask Claude to commit changes"
-                            else -> "No uncommitted changes"
-                        }
+                        commitButton.isEnabled = info.dirty
+                        commitButton.toolTipText = if (info.dirty) "Ask Claude to commit changes" else "No uncommitted changes"
 
-                        // PR button: visible for GitHub repos, enabled when there are commits to push
-                        prButton.isVisible = isGitHub
-                        prButton.isEnabled = !rebasing && isGitHub && ahead > 0 && !dirty
+                        prButton.isVisible = info.isGitHub
+                        prButton.isEnabled = info.isGitHub && info.ahead > 0 && !info.dirty
                         prButton.toolTipText = when {
-                            rebasing -> "Rebase in progress \u2014 resolve in the terminal first"
-                            !isGitHub -> "Not a GitHub repository"
-                            dirty -> "Commit changes first"
-                            ahead == 0 -> "No commits to push"
+                            !info.isGitHub -> "Not a GitHub repository"
+                            info.dirty -> "Commit changes first"
+                            info.ahead == 0 -> "No commits to push"
                             else -> "Ask Claude to create a pull request"
                         }
                     }
-                } catch (_: Exception) {}
+                }
             }
         }
 
@@ -1119,6 +1124,109 @@ class ClaudeSessionEditor(
     }
 
     private data class GitResult(val exitCode: Int, val output: String)
+
+    private enum class WorktreeState { OK, REBASING, MERGING, CHERRY_PICKING, DETACHED, MISSING, UNKNOWN }
+
+    private data class WorktreeBranchInfo(
+        val state: WorktreeState,
+        val name: String,
+        val wtBranch: String? = null,
+        val mainBranch: String? = null,
+        val ahead: Int = 0,
+        val behind: Int = 0,
+        val dirty: Boolean = false,
+        val isGitHub: Boolean = false,
+        val errorDetail: String? = null
+    )
+
+    private fun computeWorktreeInfo(worktreePath: String, projectPath: String): WorktreeBranchInfo {
+        val name = worktreePath.substringAfterLast('/')
+
+        val wtPath = java.nio.file.Path.of(worktreePath)
+        if (!java.nio.file.Files.isDirectory(wtPath)) {
+            return WorktreeBranchInfo(WorktreeState.MISSING, name, errorDetail = "Worktree directory not found at $worktreePath")
+        }
+
+        try {
+            fun gitPathExists(arg: String): Boolean {
+                val r = execGitWithExitCode(worktreePath, "rev-parse", "--git-path", arg)
+                if (r.exitCode != 0) return false
+                val rel = r.output.trim()
+                return rel.isNotEmpty() && java.nio.file.Files.exists(wtPath.resolve(rel))
+            }
+
+            val inProgress = when {
+                gitPathExists("rebase-merge") || gitPathExists("rebase-apply") -> WorktreeState.REBASING
+                gitPathExists("MERGE_HEAD") -> WorktreeState.MERGING
+                gitPathExists("CHERRY_PICK_HEAD") -> WorktreeState.CHERRY_PICKING
+                else -> null
+            }
+
+            val wtBranchResult = execGitWithExitCode(worktreePath, "branch", "--show-current")
+            if (wtBranchResult.exitCode != 0) {
+                return WorktreeBranchInfo(
+                    state = WorktreeState.UNKNOWN,
+                    name = name,
+                    errorDetail = wtBranchResult.output.trim().take(200).ifEmpty { "git branch --show-current failed" }
+                )
+            }
+            val wtBranch = wtBranchResult.output.trim()
+
+            val mainBranchResult = execGitWithExitCode(projectPath, "branch", "--show-current")
+            val mainBranch = if (mainBranchResult.exitCode == 0) mainBranchResult.output.trim() else ""
+
+            val dirtyResult = execGitWithExitCode(worktreePath, "status", "--porcelain")
+            val dirty = dirtyResult.exitCode == 0 && dirtyResult.output.trim().isNotEmpty()
+
+            val remoteResult = execGitWithExitCode(worktreePath, "remote", "get-url", "origin")
+            val isGitHub = remoteResult.exitCode == 0 && remoteResult.output.contains("github.com")
+
+            if (inProgress != null) {
+                return WorktreeBranchInfo(
+                    state = inProgress,
+                    name = name,
+                    wtBranch = wtBranch.ifEmpty { null },
+                    mainBranch = mainBranch.ifEmpty { null },
+                    dirty = dirty,
+                    isGitHub = isGitHub
+                )
+            }
+
+            if (wtBranch.isEmpty() || mainBranch.isEmpty()) {
+                return WorktreeBranchInfo(
+                    state = WorktreeState.DETACHED,
+                    name = name,
+                    wtBranch = wtBranch.ifEmpty { null },
+                    mainBranch = mainBranch.ifEmpty { null },
+                    dirty = dirty,
+                    isGitHub = isGitHub
+                )
+            }
+
+            val countsResult = execGitWithExitCode(worktreePath, "rev-list", "--left-right", "--count", "$mainBranch...$wtBranch")
+            val parts = if (countsResult.exitCode == 0) countsResult.output.trim().split("\t") else emptyList()
+            val behind = parts.getOrNull(0)?.trim()?.toIntOrNull() ?: 0
+            val ahead = parts.getOrNull(1)?.trim()?.toIntOrNull() ?: 0
+
+            return WorktreeBranchInfo(
+                state = WorktreeState.OK,
+                name = name,
+                wtBranch = wtBranch,
+                mainBranch = mainBranch,
+                ahead = ahead,
+                behind = behind,
+                dirty = dirty,
+                isGitHub = isGitHub
+            )
+        } catch (e: Exception) {
+            log.warn("Failed to compute worktree info for $worktreePath", e)
+            return WorktreeBranchInfo(
+                state = WorktreeState.UNKNOWN,
+                name = name,
+                errorDetail = e.message ?: e.javaClass.simpleName
+            )
+        }
+    }
 
     private fun execGit(workDir: String, vararg args: String): String {
         return execGitWithExitCode(workDir, *args).output
