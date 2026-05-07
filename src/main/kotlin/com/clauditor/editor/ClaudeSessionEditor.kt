@@ -1036,6 +1036,26 @@ class ClaudeSessionEditor(
             }
         }
 
+        val openInTerminalButton = javax.swing.JButton("Open in Terminal").apply {
+            isFocusable = false
+            toolTipText = "Open a terminal tab in this IDE rooted at the worktree directory"
+            addActionListener {
+                if (worktreePath == null) return@addActionListener
+                try {
+                    val terminal = org.jetbrains.plugins.terminal.TerminalToolWindowManager.getInstance(project)
+                    val runner = org.jetbrains.plugins.terminal.LocalTerminalDirectRunner.createTerminalRunner(project)
+                    val tabState = org.jetbrains.plugins.terminal.TerminalTabState().apply {
+                        myTabName = worktreePath.substringAfterLast('/')
+                        myWorkingDirectory = worktreePath
+                    }
+                    terminal.createNewSession(runner, tabState)
+                } catch (ex: Exception) {
+                    log.warn("Failed to open terminal at $worktreePath", ex)
+                    showNotification("Failed to open terminal: ${ex.message}", NotificationType.ERROR)
+                }
+            }
+        }
+
         val revealButton = javax.swing.JButton(AllIcons.Actions.MenuOpen).apply {
             isFocusable = false
             toolTipText = "Reveal worktree directory in file manager"
@@ -1069,12 +1089,15 @@ class ClaudeSessionEditor(
         }
 
         openInIdeButton.alignmentY = java.awt.Component.CENTER_ALIGNMENT
+        openInTerminalButton.alignmentY = java.awt.Component.CENTER_ALIGNMENT
         revealButton.alignmentY = java.awt.Component.CENTER_ALIGNMENT
 
         val rightPanel = JPanel().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
             border = JBUI.Borders.empty(2, 4)
             add(openInIdeButton)
+            add(javax.swing.Box.createHorizontalStrut(4))
+            add(openInTerminalButton)
             add(javax.swing.Box.createHorizontalStrut(4))
             add(revealButton)
         }
