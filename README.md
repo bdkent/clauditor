@@ -30,7 +30,7 @@ Sessions open as virtual editor tabs — side by side with your source files, no
 
 Run isolated Claude sessions in git worktrees. Each worktree gets its own branch and working directory, so Claude can make changes without touching your main tree.
 
-- Create worktrees from the Sessions panel
+- Create worktrees from the Sessions panel — dialog shows base-branch state (Claude bases new worktrees on `origin/<default>`, so divergence and being on a non-default branch is surfaced upfront)
 - Dedicated toolbar with **commit**, **create PR**, **rebase**, and **merge** controls
 - Open worktree directory in a separate IDE window, in a terminal tab in this IDE, or in a file manager
 - Branch status: ahead/behind tracking vs. your project branch

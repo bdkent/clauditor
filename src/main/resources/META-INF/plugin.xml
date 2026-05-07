@@ -23,7 +23,7 @@
 
     <p><b>Git Worktree Support</b></p>
     <ul>
-        <li>Create isolated Claude sessions in git worktrees with their own branches</li>
+        <li>Create isolated Claude sessions in git worktrees with their own branches; creation dialog surfaces base-branch state so you know when local main is ahead/behind the remote</li>
         <li>Worktree toolbar with commit, PR, rebase, and merge controls, plus open-in-IDE/terminal/file-manager shortcuts</li>
     </ul>
 
