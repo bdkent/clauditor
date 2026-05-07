@@ -23,6 +23,7 @@ import javax.swing.event.DocumentEvent
 class WorktreeNameDialog(private val project: Project) : DialogWrapper(project) {
 
     private val nameField = JBTextField(24)
+    private val baseBranchLabel = JBLabel(" ")
     private val statusLabel = JBLabel(" ")
     private val pruneButton = JButton("Prune stale registration").apply { isVisible = false }
 
@@ -43,12 +44,13 @@ class WorktreeNameDialog(private val project: Project) : DialogWrapper(project) 
         pruneButton.addActionListener { runPrune() }
         setOKActionEnabled(false)
         loadWorktreeList()
+        loadBaseBranchInfo()
     }
 
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(GridBagLayout())
         panel.border = JBUI.Borders.empty(8)
-        panel.preferredSize = JBUI.size(420, 120)
+        panel.preferredSize = JBUI.size(520, 160)
         val gbc = GridBagConstraints().apply {
             insets = Insets(2, 2, 2, 2)
             anchor = GridBagConstraints.WEST
@@ -60,6 +62,8 @@ class WorktreeNameDialog(private val project: Project) : DialogWrapper(project) 
         panel.add(JBLabel("Worktree name:"), gbc)
         gbc.gridy++
         panel.add(nameField, gbc)
+        gbc.gridy++
+        panel.add(baseBranchLabel, gbc)
         gbc.gridy++
         panel.add(statusLabel, gbc)
         gbc.gridy++
@@ -88,6 +92,35 @@ class WorktreeNameDialog(private val project: Project) : DialogWrapper(project) 
                 revalidateInput()
             }, modality)
         }
+    }
+
+    private fun loadBaseBranchInfo() {
+        val basePath = project.basePath ?: return
+        baseBranchLabel.text = "Checking base branch state..."
+        baseBranchLabel.foreground = JBColor.foreground()
+        val modality = ModalityState.stateForComponent(contentPane)
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val info = WorktreeInspector.inspectBaseBranch(basePath)
+            ApplicationManager.getApplication().invokeLater({ renderBaseBranch(info) }, modality)
+        }
+    }
+
+    private fun renderBaseBranch(info: BaseBranchInfo) {
+        val def = info.defaultBranch ?: "main"
+        val rule = "Claude bases new worktrees on origin/$def."
+        val (text, color) = when (info.state) {
+            BaseBranchState.SYNCED -> rule to JBColor.foreground()
+            BaseBranchState.LOCAL_AHEAD -> "$rule Your local $def is ${info.ahead} ahead — those commits won't be in the new worktree." to JBColor.ORANGE
+            BaseBranchState.LOCAL_BEHIND -> "$rule Your local $def is ${info.behind} behind — the worktree will include commits you don't have locally." to JBColor.ORANGE
+            BaseBranchState.LOCAL_DIVERGED -> "$rule Your local $def has diverged (${info.ahead} ahead, ${info.behind} behind)." to JBColor.ORANGE
+            BaseBranchState.OTHER_BRANCH -> "$rule You are on '${info.currentBranch ?: "(unknown)"}' — the worktree will not branch from your current work." to JBColor.ORANGE
+            BaseBranchState.NO_LOCAL_DEFAULT -> "$rule You have no local '$def' branch — the worktree will be created from the remote ref." to JBColor.foreground()
+            BaseBranchState.NO_REMOTE_DEFAULT -> "No origin/HEAD set — Claude may fail to create the worktree or use an unexpected base." to JBColor.RED
+            BaseBranchState.UNKNOWN -> "Couldn't determine base branch state." to JBColor.ORANGE
+        }
+        baseBranchLabel.text = "<html>$text</html>"
+        baseBranchLabel.foreground = color
+        baseBranchLabel.toolTipText = info.errorDetail
     }
 
     private fun runPrune() {
@@ -205,6 +238,17 @@ data class WorktreeEntry(
     val prunableReason: String?
 )
 
+enum class BaseBranchState { SYNCED, LOCAL_AHEAD, LOCAL_BEHIND, LOCAL_DIVERGED, OTHER_BRANCH, NO_REMOTE_DEFAULT, NO_LOCAL_DEFAULT, UNKNOWN }
+
+data class BaseBranchInfo(
+    val state: BaseBranchState,
+    val currentBranch: String? = null,
+    val defaultBranch: String? = null,
+    val ahead: Int = 0,
+    val behind: Int = 0,
+    val errorDetail: String? = null
+)
+
 object WorktreeInspector {
     fun normalize(name: String): String = name.replace("/", "+")
 
@@ -232,6 +276,74 @@ object WorktreeInspector {
         } catch (e: Exception) {
             false to (e.message ?: "exception")
         }
+    }
+
+    fun inspectBaseBranch(projectDir: String): BaseBranchInfo {
+        return try {
+            // Prefer origin/HEAD (set on fresh clones), but many repos don't have it
+            // configured even when origin/main clearly exists — fall back to probing.
+            val defaultBranch = run {
+                val (rc, out) = runGit(projectDir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+                val fromHead = if (rc == 0) out.trim().removePrefix("origin/").ifEmpty { null } else null
+                fromHead
+                    ?: listOf("main", "master").firstOrNull { name ->
+                        runGit(projectDir, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/$name").first == 0
+                    }
+                    ?: return BaseBranchInfo(
+                        state = BaseBranchState.NO_REMOTE_DEFAULT,
+                        errorDetail = "No origin/HEAD, origin/main, or origin/master found"
+                    )
+            }
+
+            val (curRc, curOut) = runGit(projectDir, "branch", "--show-current")
+            val current = if (curRc == 0) curOut.trim() else ""
+
+            val (localRc, _) = runGit(projectDir, "rev-parse", "--verify", "--quiet", "refs/heads/$defaultBranch")
+            if (localRc != 0) {
+                return BaseBranchInfo(
+                    state = BaseBranchState.NO_LOCAL_DEFAULT,
+                    currentBranch = current.ifEmpty { null },
+                    defaultBranch = defaultBranch
+                )
+            }
+
+            if (current != defaultBranch) {
+                return BaseBranchInfo(
+                    state = BaseBranchState.OTHER_BRANCH,
+                    currentBranch = current.ifEmpty { null },
+                    defaultBranch = defaultBranch
+                )
+            }
+
+            val (cntRc, cntOut) = runGit(projectDir, "rev-list", "--left-right", "--count", "refs/remotes/origin/$defaultBranch...refs/heads/$defaultBranch")
+            val parts = if (cntRc == 0) cntOut.trim().split("\t") else emptyList()
+            val behind = parts.getOrNull(0)?.trim()?.toIntOrNull() ?: 0
+            val ahead = parts.getOrNull(1)?.trim()?.toIntOrNull() ?: 0
+            val state = when {
+                ahead > 0 && behind > 0 -> BaseBranchState.LOCAL_DIVERGED
+                ahead > 0 -> BaseBranchState.LOCAL_AHEAD
+                behind > 0 -> BaseBranchState.LOCAL_BEHIND
+                else -> BaseBranchState.SYNCED
+            }
+            BaseBranchInfo(
+                state = state,
+                currentBranch = current,
+                defaultBranch = defaultBranch,
+                ahead = ahead,
+                behind = behind
+            )
+        } catch (e: Exception) {
+            BaseBranchInfo(state = BaseBranchState.UNKNOWN, errorDetail = e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    private fun runGit(projectDir: String, vararg args: String): Pair<Int, String> {
+        val proc = ProcessHelper.builder("git", "-C", projectDir, *args)
+            .redirectErrorStream(true)
+            .start()
+        val output = proc.inputStream.bufferedReader().use { it.readText() }
+        val rc = proc.waitFor()
+        return rc to output
     }
 
     fun parse(output: String): List<WorktreeEntry> {
