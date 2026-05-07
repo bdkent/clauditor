@@ -32,7 +32,7 @@ Run isolated Claude sessions in git worktrees. Each worktree gets its own branch
 
 - Create worktrees from the Sessions panel
 - Dedicated toolbar with **commit**, **create PR**, **rebase**, and **merge** controls
-- Open worktree directory in a separate IDE window or file manager
+- Open worktree directory in a separate IDE window, in a terminal tab in this IDE, or in a file manager
 - Branch status: ahead/behind tracking vs. your project branch
 
 <!-- ![Worktree toolbar](docs/screenshots/worktree-toolbar.png) -->

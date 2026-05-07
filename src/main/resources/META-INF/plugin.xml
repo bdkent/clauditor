@@ -24,7 +24,7 @@
     <p><b>Git Worktree Support</b></p>
     <ul>
         <li>Create isolated Claude sessions in git worktrees with their own branches</li>
-        <li>Worktree toolbar with commit, PR, rebase, and merge controls</li>
+        <li>Worktree toolbar with commit, PR, rebase, and merge controls, plus open-in-IDE/terminal/file-manager shortcuts</li>
     </ul>
 
     <p><b>Transient Popup Queries</b></p>
