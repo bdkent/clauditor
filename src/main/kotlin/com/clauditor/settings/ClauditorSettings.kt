@@ -40,6 +40,15 @@ class ClauditorSettings : PersistentStateComponent<ClauditorSettings.State> {
 
         /** Seconds between auto-refreshes of the git/worktree toolbar branch status. 0 = focus + status events only. */
         @JvmField var branchStatusRefreshSeconds: Int = 10
+
+        /**
+         * Max concurrent background threads in the Clauditor-owned pool. Sized to cover
+         * peak per-tab refresh work (each open session tab can have up to 2 in-flight
+         * refreshes — git toolbar + worktree status — gated by single-flight). Default
+         * 16 covers ~8 session tabs across multiple IDE windows. If the pool runs hot
+         * a warning is logged so this can be tuned upward.
+         */
+        @JvmField var backgroundPoolMaxThreads: Int = 16
     }
 
     private var myState = State()

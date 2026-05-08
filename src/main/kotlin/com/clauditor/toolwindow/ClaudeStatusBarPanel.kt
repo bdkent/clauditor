@@ -184,11 +184,12 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
                 val claudePath = com.clauditor.settings.ClauditorSettings.getInstance().resolveClaudeBinary()
                 log.info("Clauditor: refreshAuth — claude binary resolved to: $claudePath")
 
-                val proc = com.clauditor.util.ProcessHelper.builder("claude", "auth", "status")
-                    .redirectErrorStream(true)
-                    .start()
-                val out = proc.inputStream.bufferedReader().readText()
-                val exitCode = proc.waitFor()
+                val res = com.clauditor.util.ProcessHelper.execWithTimeout(
+                    command = arrayOf("claude", "auth", "status"),
+                    timeoutMs = 15_000
+                )
+                val out = res.output
+                val exitCode = res.exitCode
                 log.info("Clauditor: 'claude auth status' exit=$exitCode, output=${out.take(500)}")
 
                 // Output may contain non-JSON lines (warnings, prompts) — extract the JSON object

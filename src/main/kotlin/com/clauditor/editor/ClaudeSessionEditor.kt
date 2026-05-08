@@ -519,25 +519,21 @@ class ClaudeSessionEditor(
             try {
                 val settings = com.clauditor.settings.ClauditorSettings.getInstance()
                 val claudeBin = settings.resolveClaudeBinary()
-                val process = ProcessBuilder(
-                    claudeBin, "-p",
-                    "--resume", sessionId,
-                    "--fork-session",
-                    "--no-session-persistence",
-                    "--model", settings.state.transientQueryModel,
-                    "--append-system-prompt", "You are answering a query from a plugin UI popup. Respond ONLY with the requested content. No conversational filler, no follow-up questions, no commentary about your own actions.",
-                    prompt
-                ).apply {
-                    environment().putAll(com.clauditor.util.ProcessHelper.augmentedEnv())
-                    environment().putAll(settings.environmentOverrides())
-                    directory(java.io.File(workingDir))
-                    redirectInput(ProcessBuilder.Redirect.from(java.io.File("/dev/null")))
-                    redirectErrorStream(true)
-                }.start()
-
-                val output = process.inputStream.bufferedReader().readText()
-                process.waitFor(120, TimeUnit.SECONDS)
-                val result = output.trim()
+                val res = com.clauditor.util.ProcessHelper.execWithTimeout(
+                    command = arrayOf(
+                        claudeBin, "-p",
+                        "--resume", sessionId,
+                        "--fork-session",
+                        "--no-session-persistence",
+                        "--model", settings.state.transientQueryModel,
+                        "--append-system-prompt", "You are answering a query from a plugin UI popup. Respond ONLY with the requested content. No conversational filler, no follow-up questions, no commentary about your own actions.",
+                        prompt
+                    ),
+                    timeoutMs = 120_000,
+                    workDir = workingDir,
+                    extraEnv = settings.environmentOverrides()
+                )
+                val result = res.output.trim()
 
                 ApplicationManager.getApplication().invokeLater {
                     balloon.hide()
@@ -578,23 +574,19 @@ class ClaudeSessionEditor(
             try {
                 val settings = com.clauditor.settings.ClauditorSettings.getInstance()
                 val claudeBin = settings.resolveClaudeBinary()
-                val process = ProcessBuilder(
-                    claudeBin, "-p",
-                    "--no-session-persistence",
-                    "--model", settings.state.transientQueryModel,
-                    "--append-system-prompt", "You are answering a query from a plugin UI popup. Respond ONLY with the requested content. No conversational filler, no follow-up questions, no commentary about your own actions.",
-                    prompt
-                ).apply {
-                    environment().putAll(com.clauditor.util.ProcessHelper.augmentedEnv())
-                    environment().putAll(settings.environmentOverrides())
-                    directory(java.io.File(workingDir))
-                    redirectInput(ProcessBuilder.Redirect.from(java.io.File("/dev/null")))
-                    redirectErrorStream(true)
-                }.start()
-
-                val output = process.inputStream.bufferedReader().readText()
-                process.waitFor(120, TimeUnit.SECONDS)
-                val result = output.trim()
+                val res = com.clauditor.util.ProcessHelper.execWithTimeout(
+                    command = arrayOf(
+                        claudeBin, "-p",
+                        "--no-session-persistence",
+                        "--model", settings.state.transientQueryModel,
+                        "--append-system-prompt", "You are answering a query from a plugin UI popup. Respond ONLY with the requested content. No conversational filler, no follow-up questions, no commentary about your own actions.",
+                        prompt
+                    ),
+                    timeoutMs = 120_000,
+                    workDir = workingDir,
+                    extraEnv = settings.environmentOverrides()
+                )
+                val result = res.output.trim()
 
                 ApplicationManager.getApplication().invokeLater {
                     balloon.hide()
@@ -682,8 +674,10 @@ class ClaudeSessionEditor(
             toolTipText = "No session changes to explain"
         }
 
+        val gitRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
         fun refresh() {
-            ApplicationManager.getApplication().executeOnPooledThread {
+            if (!gitRefreshInFlight.compareAndSet(false, true)) return
+            com.clauditor.util.ClauditorExecutor.submit {
                 try {
                     val branch = execGit(gitDir, "branch", "--show-current").trim()
                     val status = execGit(gitDir, "status", "--porcelain").trim()
@@ -721,7 +715,10 @@ class ClaudeSessionEditor(
                             "Explain changes to $bySession file${if (bySession > 1) "s" else ""}"
                         else "No session changes to explain"
                     }
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                } finally {
+                    gitRefreshInFlight.set(false)
+                }
             }
         }
 
@@ -861,10 +858,16 @@ class ClaudeSessionEditor(
             toolTipText = "Nothing to push"
         }
 
+        val wtRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
         fun refreshBranchStatus() {
             if (worktreePath == null || projectPath == null) return
-            ApplicationManager.getApplication().executeOnPooledThread {
-                val info = computeWorktreeInfo(worktreePath, projectPath)
+            if (!wtRefreshInFlight.compareAndSet(false, true)) return
+            com.clauditor.util.ClauditorExecutor.submit {
+                val info = try {
+                    computeWorktreeInfo(worktreePath, projectPath)
+                } finally {
+                    wtRefreshInFlight.set(false)
+                }
                 ApplicationManager.getApplication().invokeLater {
                     info.wtBranch?.let { currentWtBranch = it }
                     info.mainBranch?.let { currentMainBranch = it }
@@ -1256,12 +1259,12 @@ class ClaudeSessionEditor(
     }
 
     private fun execGitWithExitCode(workDir: String, vararg args: String): GitResult {
-        val process = com.clauditor.util.ProcessHelper.builder("git", "-C", workDir, *args)
-            .redirectErrorStream(true)
-            .start()
-        val output = process.inputStream.bufferedReader().readText()
-        process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)
-        return GitResult(process.exitValue(), output)
+        val res = com.clauditor.util.ProcessHelper.execWithTimeout(
+            command = arrayOf("git", "-C", workDir, *args),
+            timeoutMs = 15_000,
+            extraEnv = mapOf("GIT_OPTIONAL_LOCKS" to "0")
+        )
+        return GitResult(res.exitCode, res.output)
     }
 
     private data class SessionFileOp(

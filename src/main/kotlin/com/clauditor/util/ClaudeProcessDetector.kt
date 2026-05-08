@@ -56,10 +56,11 @@ object ClaudeProcessDetector {
 
     private fun getClauditorPids(): Set<Int> {
         return try {
-            val process = ProcessHelper.builder("ps", "-A", "-o", "pid,args", "-ww").start()
-            val output = process.inputStream.bufferedReader().readText()
-            process.waitFor()
-            output.lines()
+            val res = ProcessHelper.execWithTimeout(
+                command = arrayOf("ps", "-A", "-o", "pid,args", "-ww"),
+                timeoutMs = 10_000
+            )
+            res.output.lines()
                 .map { it.trim() }
                 .filter { it.contains("clauditor-settings") }
                 .mapNotNull { it.split(Regex("\\s+"), limit = 2).firstOrNull()?.toIntOrNull() }
@@ -71,8 +72,10 @@ object ClaudeProcessDetector {
 
     private fun isProcessAlive(pid: Int): Boolean {
         return try {
-            val process = ProcessHelper.builder("kill", "-0", pid.toString()).start()
-            process.waitFor() == 0
+            ProcessHelper.execWithTimeout(
+                command = arrayOf("kill", "-0", pid.toString()),
+                timeoutMs = 5_000
+            ).exitCode == 0
         } catch (_: Exception) {
             false
         }

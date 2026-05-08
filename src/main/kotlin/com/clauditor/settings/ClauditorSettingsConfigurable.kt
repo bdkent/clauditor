@@ -33,6 +33,7 @@ class ClauditorSettingsConfigurable : Configurable {
     private var customEnvVarsArea: JBTextArea? = null
     private var refreshIntervalSpinner: JSpinner? = null
     private var branchRefreshSpinner: JSpinner? = null
+    private var poolMaxSpinner: JSpinner? = null
 
     override fun getDisplayName(): String = "Clauditor"
 
@@ -61,6 +62,10 @@ class ClauditorSettingsConfigurable : Configurable {
 
         branchRefreshSpinner = JSpinner(SpinnerNumberModel(10, 0, 600, 5)).apply {
             toolTipText = "Re-query git state for the worktree/git toolbars every N seconds. 0 = refresh only on tab focus and Claude status events. Takes effect on next session restart."
+        }
+
+        poolMaxSpinner = JSpinner(SpinnerNumberModel(16, 2, 64, 1)).apply {
+            toolTipText = "Maximum concurrent threads in the Clauditor background pool (git polling, status checks, popup queries). Each open session tab can use up to 2; raise if you see warnings about a saturated pool. Default 16 covers ~8 session tabs across multiple windows."
         }
 
         envColortermCheckbox = JBCheckBox("COLORTERM=truecolor — Enable true color support in terminal output")
@@ -101,6 +106,9 @@ class ClauditorSettingsConfigurable : Configurable {
             .addLabeledComponent(JBLabel("Branch status refresh (sec):"), branchRefreshSpinner!!, 1, false)
             .addComponentToRightColumn(createHint("Re-query git for the worktree/git toolbars every N seconds. 0 = focus + status events only."), 0)
             .addSeparator()
+            .addLabeledComponent(JBLabel("Background pool max threads:"), poolMaxSpinner!!, 1, false)
+            .addComponentToRightColumn(createHint("Cap on concurrent background work; raise if you see pool-saturated warnings in the IDE log"), 0)
+            .addSeparator()
             .addComponent(JBLabel("Environment Variables").apply {
                 font = font.deriveFont(java.awt.Font.BOLD)
                 border = JBUI.Borders.emptyTop(8)
@@ -130,7 +138,8 @@ class ClauditorSettingsConfigurable : Configurable {
             envDisableCachingCheckbox?.isSelected != settings.state.envDisablePromptCaching ||
             customEnvVarsArea?.text?.trim() != settings.state.customEnvVars ||
             (refreshIntervalSpinner?.value as? Int) != settings.state.statusLineRefreshInterval ||
-            (branchRefreshSpinner?.value as? Int) != settings.state.branchStatusRefreshSeconds
+            (branchRefreshSpinner?.value as? Int) != settings.state.branchStatusRefreshSeconds ||
+            (poolMaxSpinner?.value as? Int) != settings.state.backgroundPoolMaxThreads
     }
 
     override fun apply() {
@@ -146,6 +155,7 @@ class ClauditorSettingsConfigurable : Configurable {
         settings.state.customEnvVars = customEnvVarsArea?.text?.trim() ?: ""
         settings.state.statusLineRefreshInterval = (refreshIntervalSpinner?.value as? Int) ?: 60
         settings.state.branchStatusRefreshSeconds = (branchRefreshSpinner?.value as? Int) ?: 10
+        settings.state.backgroundPoolMaxThreads = (poolMaxSpinner?.value as? Int) ?: 16
     }
 
     override fun reset() {
@@ -161,6 +171,7 @@ class ClauditorSettingsConfigurable : Configurable {
         customEnvVarsArea?.text = settings.state.customEnvVars
         refreshIntervalSpinner?.value = settings.state.statusLineRefreshInterval
         branchRefreshSpinner?.value = settings.state.branchStatusRefreshSeconds
+        poolMaxSpinner?.value = settings.state.backgroundPoolMaxThreads
     }
 
     override fun disposeUIResources() {
@@ -176,6 +187,7 @@ class ClauditorSettingsConfigurable : Configurable {
         customEnvVarsArea = null
         refreshIntervalSpinner = null
         branchRefreshSpinner = null
+        poolMaxSpinner = null
     }
 
     private fun createHint(text: String): JComponent {

@@ -303,23 +303,19 @@ class ClaudeContextPanel(private val project: Project) : JPanel(BorderLayout()) 
             try {
                 val settings = com.clauditor.settings.ClauditorSettings.getInstance()
                 val claudeBin = settings.resolveClaudeBinary()
-                val process = ProcessBuilder(
-                    claudeBin, "-p",
-                    "--no-session-persistence",
-                    "--model", settings.state.transientQueryModel,
-                    "--append-system-prompt", "You are answering a query from a plugin UI popup. Respond ONLY with the requested content. No conversational filler, no follow-up questions, no commentary.",
-                    prompt
-                ).apply {
-                    environment().putAll(ProcessHelper.augmentedEnv())
-                    environment().putAll(settings.environmentOverrides())
-                    directory(java.io.File(workingDir))
-                    redirectInput(ProcessBuilder.Redirect.from(java.io.File("/dev/null")))
-                    redirectErrorStream(true)
-                }.start()
-
-                val output = process.inputStream.bufferedReader().readText()
-                process.waitFor(120, TimeUnit.SECONDS)
-                val result = output.trim()
+                val res = ProcessHelper.execWithTimeout(
+                    command = arrayOf(
+                        claudeBin, "-p",
+                        "--no-session-persistence",
+                        "--model", settings.state.transientQueryModel,
+                        "--append-system-prompt", "You are answering a query from a plugin UI popup. Respond ONLY with the requested content. No conversational filler, no follow-up questions, no commentary.",
+                        prompt
+                    ),
+                    timeoutMs = 120_000,
+                    workDir = workingDir,
+                    extraEnv = settings.environmentOverrides()
+                )
+                val result = res.output.trim()
 
                 ApplicationManager.getApplication().invokeLater {
                     balloon.hide()

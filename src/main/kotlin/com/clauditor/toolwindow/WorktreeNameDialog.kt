@@ -99,7 +99,7 @@ class WorktreeNameDialog(private val project: Project) : DialogWrapper(project) 
         baseBranchLabel.text = "Checking base branch state..."
         baseBranchLabel.foreground = JBColor.foreground()
         val modality = ModalityState.stateForComponent(contentPane)
-        ApplicationManager.getApplication().executeOnPooledThread {
+        com.clauditor.util.ClauditorExecutor.submit {
             val info = WorktreeInspector.inspectBaseBranch(basePath)
             ApplicationManager.getApplication().invokeLater({ renderBaseBranch(info) }, modality)
         }
@@ -254,12 +254,12 @@ object WorktreeInspector {
 
     fun list(projectDir: String): List<WorktreeEntry> {
         return try {
-            val proc = ProcessHelper.builder("git", "-C", projectDir, "worktree", "list", "--porcelain")
-                .redirectErrorStream(true)
-                .start()
-            val output = proc.inputStream.bufferedReader().use { it.readText() }
-            proc.waitFor()
-            parse(output)
+            val res = ProcessHelper.execWithTimeout(
+                command = arrayOf("git", "-C", projectDir, "worktree", "list", "--porcelain"),
+                timeoutMs = 15_000,
+                extraEnv = mapOf("GIT_OPTIONAL_LOCKS" to "0")
+            )
+            parse(res.output)
         } catch (_: Exception) {
             emptyList()
         }
@@ -267,12 +267,12 @@ object WorktreeInspector {
 
     fun prune(projectDir: String): Pair<Boolean, String> {
         return try {
-            val proc = ProcessHelper.builder("git", "-C", projectDir, "worktree", "prune")
-                .redirectErrorStream(true)
-                .start()
-            val output = proc.inputStream.bufferedReader().use { it.readText() }
-            val rc = proc.waitFor()
-            (rc == 0) to output
+            val res = ProcessHelper.execWithTimeout(
+                command = arrayOf("git", "-C", projectDir, "worktree", "prune"),
+                timeoutMs = 15_000,
+                extraEnv = mapOf("GIT_OPTIONAL_LOCKS" to "0")
+            )
+            (res.exitCode == 0) to res.output
         } catch (e: Exception) {
             false to (e.message ?: "exception")
         }
@@ -338,12 +338,12 @@ object WorktreeInspector {
     }
 
     private fun runGit(projectDir: String, vararg args: String): Pair<Int, String> {
-        val proc = ProcessHelper.builder("git", "-C", projectDir, *args)
-            .redirectErrorStream(true)
-            .start()
-        val output = proc.inputStream.bufferedReader().use { it.readText() }
-        val rc = proc.waitFor()
-        return rc to output
+        val res = ProcessHelper.execWithTimeout(
+            command = arrayOf("git", "-C", projectDir, *args),
+            timeoutMs = 15_000,
+            extraEnv = mapOf("GIT_OPTIONAL_LOCKS" to "0")
+        )
+        return res.exitCode to res.output
     }
 
     fun parse(output: String): List<WorktreeEntry> {
