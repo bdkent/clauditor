@@ -61,6 +61,7 @@
         <li>Transient query model (haiku/sonnet/opus), unresponsive timeout, claude binary path, default session args</li>
         <li>Status line refresh interval (requires CLI 2.1.97+)</li>
         <li>Branch status refresh interval for worktree/git toolbars</li>
+        <li>Background pool max threads (cap on Clauditor's owned thread pool, isolated from IDE-shared pool)</li>
         <li>Environment variable toggles: COLORTERM=truecolor, telemetry, update check, prompt caching</li>
         <li>Custom environment variables (KEY=VALUE) with link to Claude Code env var docs</li>
     </ul>

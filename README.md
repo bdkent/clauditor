@@ -117,6 +117,7 @@ Configure the plugin under **Settings > Tools > Clauditor**:
 - **Default session arguments** — extra CLI flags for every new session
 - **Status line refresh interval** — re-run the status line command every N seconds (requires CLI 2.1.97+)
 - **Branch status refresh** — re-query git for the worktree/git toolbars every N seconds (0 disables; tab focus and Claude status events still trigger refreshes)
+- **Background pool max threads** — cap on Clauditor's bounded thread pool (default 16; raise if the IDE log warns the pool is saturated)
 - **Environment variables** — toggles for `COLORTERM=truecolor`, telemetry, update check, prompt caching, plus free-form custom vars
 - Links to [Claude Code environment variable docs](https://docs.anthropic.com/en/docs/claude-code/settings#environment-variables)
 
