@@ -1576,24 +1576,36 @@ class ClaudeSessionEditor(
                 else -> ""
             }
             costLabel.text = status.costUsd?.let { String.format("$%.2f", it) } ?: ""
-            status.cliVersion?.let { current ->
-                versionLinkTarget = current.replace('.', '-')
-                versionLabel.toolTipText = "View release notes for v$current"
+            status.cliVersion?.let { running ->
+                versionLinkTarget = running.replace('.', '-')
                 val statusService = ClaudeStatusService.getInstance(project)
-                statusService.refreshLatestCliVersion()
-                val latest = statusService.getLatestCliVersion()
-                val hasUpdate = latest != null && current != latest
-                if (hasUpdate) {
-                    versionLabel.text = "v$current (update: v$latest)"
-                    versionLabel.foreground = COLOR_YELLOW
-                    reconnectButton?.let {
-                        it.icon = com.intellij.icons.AllIcons.Actions.ForceRefresh
-                        it.toolTipText = "Reconnect — update available (v$current \u2192 v$latest)"
-                    }
+                statusService.refreshVersions()
+                val installed = statusService.getInstalledCliVersion()
+                val published = statusService.getPublishedCliVersion()
+
+                val hasPendingUpgrade = installed != null && isNewerVersion(installed, running)
+                val hasNewerPublished = published != null
+                        && isNewerVersion(published, running)
+                        && (installed == null || isNewerVersion(published, installed))
+
+                val starSuffix = if (hasNewerPublished) " *" else ""
+                versionLabel.text = if (hasPendingUpgrade) {
+                    "v$running (update: v$installed)$starSuffix"
                 } else {
-                    versionLabel.text = "v$current"
-                    versionLabel.foreground = UIManager.getColor("Label.disabledForeground")
-                    reconnectButton?.let {
+                    "v$running$starSuffix"
+                }
+                versionLabel.foreground = if (hasPendingUpgrade) COLOR_YELLOW
+                    else UIManager.getColor("Label.disabledForeground")
+
+                val baseTip = "View release notes for v$running"
+                versionLabel.toolTipText =
+                    if (hasNewerPublished) "$baseTip — v$published published" else baseTip
+
+                reconnectButton?.let {
+                    if (hasPendingUpgrade) {
+                        it.icon = com.intellij.icons.AllIcons.Actions.ForceRefresh
+                        it.toolTipText = "Reconnect — update available (v$running \u2192 v$installed)"
+                    } else {
                         it.icon = com.intellij.icons.AllIcons.Actions.Refresh
                         it.toolTipText = "Reconnect — close and resume this session"
                     }
@@ -1687,6 +1699,18 @@ class ClaudeSessionEditor(
             tokens >= 1_000_000 -> String.format("%.1fM", tokens / 1_000_000.0)
             tokens >= 1_000 -> String.format("%.0fk", tokens / 1_000.0)
             else -> tokens.toString()
+        }
+
+        private fun isNewerVersion(a: String, b: String): Boolean {
+            val pa = a.split('.').map { it.toIntOrNull() ?: 0 }
+            val pb = b.split('.').map { it.toIntOrNull() ?: 0 }
+            val n = maxOf(pa.size, pb.size)
+            for (i in 0 until n) {
+                val ai = pa.getOrElse(i) { 0 }
+                val bi = pb.getOrElse(i) { 0 }
+                if (ai != bi) return ai > bi
+            }
+            return false
         }
     }
 }

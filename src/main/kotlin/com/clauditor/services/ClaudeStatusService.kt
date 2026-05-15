@@ -5,7 +5,6 @@ import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import com.intellij.util.Alarm
@@ -29,8 +28,12 @@ class ClaudeStatusService(private val project: Project) : Disposable {
     private val listeners = CopyOnWriteArrayList<(String, ClaudeStatus?) -> Unit>()
     private var wrapperScript: Path? = null
     private var notifyScript: Path? = null
-    private val latestVersion = AtomicReference<String?>(null)
-    @Volatile private var lastVersionCheck = 0L
+    private val installedVersion = AtomicReference<String?>(null)
+    private val publishedVersion = AtomicReference<String?>(null)
+    @Volatile private var lastInstalledCheck = 0L
+    @Volatile private var lastPublishedCheck = 0L
+    private val installedRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val publishedRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
 
     fun addStatusListener(listener: (String, ClaudeStatus?) -> Unit) {
         listeners.add(listener)
@@ -337,13 +340,43 @@ class ClaudeStatusService(private val project: Project) : Disposable {
         }
     }
 
-    fun getLatestCliVersion(): String? = latestVersion.get()
+    fun getInstalledCliVersion(): String? = installedVersion.get()
 
-    fun refreshLatestCliVersion() {
+    fun getPublishedCliVersion(): String? = publishedVersion.get()
+
+    fun refreshVersions() {
+        refreshInstalled()
+        refreshPublished()
+    }
+
+    private fun refreshInstalled() {
         val now = System.currentTimeMillis()
-        if (now - lastVersionCheck < VERSION_CHECK_INTERVAL_MS) return
-        lastVersionCheck = now
-        ApplicationManager.getApplication().executeOnPooledThread {
+        if (now - lastInstalledCheck < INSTALLED_CHECK_INTERVAL_MS) return
+        if (!installedRefreshInFlight.compareAndSet(false, true)) return
+        lastInstalledCheck = now
+        com.clauditor.util.ClauditorExecutor.submit {
+            try {
+                val res = com.clauditor.util.ProcessHelper.execWithTimeout(
+                    command = arrayOf("claude", "--version"),
+                    timeoutMs = 5_000
+                )
+                if (res.exitCode == 0 && !res.timedOut) {
+                    val v = res.output.trim().substringBefore(' ').ifBlank { null }
+                    if (v != null) installedVersion.set(v)
+                }
+            } catch (_: Exception) {
+            } finally {
+                installedRefreshInFlight.set(false)
+            }
+        }
+    }
+
+    private fun refreshPublished() {
+        val now = System.currentTimeMillis()
+        if (now - lastPublishedCheck < PUBLISHED_CHECK_INTERVAL_MS) return
+        if (!publishedRefreshInFlight.compareAndSet(false, true)) return
+        lastPublishedCheck = now
+        com.clauditor.util.ClauditorExecutor.submit {
             try {
                 val json = HttpRequests.request(GITHUB_LATEST_RELEASE_URL)
                     .connectTimeout(5000)
@@ -352,8 +385,11 @@ class ClaudeStatusService(private val project: Project) : Disposable {
                 val tag = gson.fromJson(json, JsonObject::class.java)
                     ?.get("tag_name")?.asString
                 val version = tag?.removePrefix("v")
-                if (version != null) latestVersion.set(version)
-            } catch (_: Exception) {}
+                if (version != null) publishedVersion.set(version)
+            } catch (_: Exception) {
+            } finally {
+                publishedRefreshInFlight.set(false)
+            }
         }
     }
 
@@ -373,7 +409,8 @@ class ClaudeStatusService(private val project: Project) : Disposable {
 
     companion object {
         private const val GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/anthropics/claude-code/releases/latest"
-        private const val VERSION_CHECK_INTERVAL_MS = 30 * 60 * 1000L // 30 minutes
+        private const val INSTALLED_CHECK_INTERVAL_MS = 5 * 60 * 1000L  // 5 minutes
+        private const val PUBLISHED_CHECK_INTERVAL_MS = 30 * 60 * 1000L // 30 minutes
 
         fun getInstance(project: Project): ClaudeStatusService =
             project.getService(ClaudeStatusService::class.java)
