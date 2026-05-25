@@ -70,11 +70,8 @@ private class NameColumnInfo : ColumnInfo<SessionDisplay, String>("Name") {
     }
 }
 
-private fun buildNameTooltip(item: SessionDisplay?): String? {
-    if (item == null) return null
-    return item.summary?.takeIf { it.isNotBlank() }
-        ?: item.firstPrompt.takeIf { it.isNotBlank() }
-}
+private fun buildNameTooltip(item: SessionDisplay?): String? =
+    item?.firstPrompt?.takeIf { it.isNotBlank() }
 
 private class WorktreeColumnInfo : ColumnInfo<SessionDisplay, String>("Worktree") {
     override fun valueOf(item: SessionDisplay): String = item.worktreeName ?: ""

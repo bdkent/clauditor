@@ -1,7 +1,6 @@
 package com.clauditor.services
 
 import com.clauditor.model.SessionDisplay
-import com.clauditor.model.SessionIndex
 import com.clauditor.util.ClaudePathEncoder
 import com.clauditor.util.ClaudeProcessDetector
 import com.google.gson.Gson
@@ -96,22 +95,6 @@ class ClaudeSessionService(private val project: Project) : Disposable {
             log.warn("Failed to delete session directory: $sessionDir", e)
         }
 
-        // Remove from sessions-index.json so it doesn't linger
-        val indexPath = projectDir.resolve("sessions-index.json")
-        if (Files.exists(indexPath)) {
-            try {
-                val json = Files.readString(indexPath)
-                val index = gson.fromJson(json, SessionIndex::class.java)
-                val filtered = index.entries.filter { it.sessionId != sessionId }
-                if (filtered.size != index.entries.size) {
-                    val updated = SessionIndex(index.version, filtered, index.originalPath)
-                    Files.writeString(indexPath, gson.toJson(updated))
-                }
-            } catch (e: Exception) {
-                log.warn("Failed to update sessions index: $indexPath", e)
-            }
-        }
-
         // Update cache directly — avoids race with concurrent background refresh overwriting
         // the corrected cache before listeners fire
         cachedSessions = cachedSessions?.filter { it.sessionId != sessionId }
@@ -141,7 +124,6 @@ class ClaudeSessionService(private val project: Project) : Disposable {
                     val relevant = events.any { event ->
                         val path = event.path
                         (projectDirStrs.any { path.startsWith(it) } && path.endsWith(".jsonl")) ||
-                            path.endsWith("sessions-index.json") ||
                             ((event is VFileContentChangeEvent || event is VFileCreateEvent) &&
                                 path.startsWith(sessionsDirStr) &&
                                 path.endsWith(".json"))
@@ -234,50 +216,6 @@ class ClaudeSessionService(private val project: Project) : Disposable {
     }
 
     private fun loadSessionsFromDir(projectDir: Path, worktreeName: String?): List<SessionDisplay> {
-        val indexPath = projectDir.resolve("sessions-index.json")
-        if (Files.exists(indexPath)) {
-            val result = loadFromIndex(indexPath, projectDir, worktreeName)
-            if (result.isNotEmpty()) return result
-            log.warn("sessions-index.json returned 0 sessions, falling back to JSONL scan for $projectDir")
-        }
-        return loadFromJsonlFiles(projectDir, worktreeName)
-    }
-
-    private fun loadFromIndex(indexPath: Path, projectDir: Path, worktreeName: String?): List<SessionDisplay> {
-        return try {
-            val json = Files.readString(indexPath)
-            val index = gson.fromJson(json, SessionIndex::class.java)
-
-            index.entries
-                .filter { !it.isSidechain }
-                .mapNotNull { entry ->
-                    try {
-                        val jsonlPath = projectDir.resolve("${entry.sessionId}.jsonl")
-                        if (!Files.exists(jsonlPath)) return@mapNotNull null
-                        SessionDisplay(
-                            sessionId = entry.sessionId,
-                            name = readCustomTitle(jsonlPath),
-                            firstPrompt = entry.firstPrompt,
-                            summary = entry.summary,
-                            messageCount = entry.messageCount,
-                            modified = parseInstant(entry.modified),
-                            gitBranch = entry.gitBranch,
-                            projectPath = entry.projectPath,
-                            worktreeName = worktreeName
-                        )
-                    } catch (e: Exception) {
-                        log.warn("Skipping session ${entry.sessionId}: ${e.message}")
-                        null
-                    }
-                }
-                .sortedByDescending { it.modified }
-        } catch (e: Exception) {
-            log.error("Failed to parse sessions-index.json at $indexPath: ${e.message}", e)
-            emptyList()
-        }
-    }
-
-    private fun loadFromJsonlFiles(projectDir: Path, worktreeName: String?): List<SessionDisplay> {
         if (!Files.isDirectory(projectDir)) return emptyList()
 
         val sessions = mutableListOf<SessionDisplay>()
@@ -373,7 +311,6 @@ class ClaudeSessionService(private val project: Project) : Disposable {
             sessionId = sessionId,
             name = customTitle,
             firstPrompt = firstPrompt!!,
-            summary = null,
             messageCount = messageCount,
             modified = lastTimestamp,
             gitBranch = gitBranch,

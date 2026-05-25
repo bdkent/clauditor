@@ -6,7 +6,6 @@ data class SessionDisplay(
     val sessionId: String,
     val name: String?,
     val firstPrompt: String,
-    val summary: String?,
     val messageCount: Int,
     val modified: Instant,
     val gitBranch: String?,

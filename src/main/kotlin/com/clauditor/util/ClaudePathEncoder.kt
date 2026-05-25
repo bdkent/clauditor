@@ -28,9 +28,6 @@ object ClaudePathEncoder {
         return if (alt == primary) listOf(primary) else listOf(primary, alt)
     }
 
-    fun sessionsIndexPath(projectBasePath: String): Path =
-        projectDir(projectBasePath).resolve("sessions-index.json")
-
     fun sessionsDir(): Path =
         Path.of(System.getProperty("user.home"), ".claude", "sessions")
 
@@ -59,7 +56,4 @@ object ClaudePathEncoder {
         val encoded = wtPath.replace('/', '-').replace('.', '-')
         return claudeHome.resolve("projects").resolve(encoded)
     }
-
-    fun worktreeSessionsIndexPath(projectBasePath: String, worktreeName: String): Path =
-        worktreeProjectDir(projectBasePath, worktreeName).resolve("sessions-index.json")
 }

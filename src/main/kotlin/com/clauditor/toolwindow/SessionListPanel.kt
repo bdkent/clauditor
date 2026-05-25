@@ -309,7 +309,6 @@ class SessionListPanel(
             allSessions.filter { session ->
                 session.displayName.lowercase().contains(query) ||
                     session.firstPrompt.lowercase().contains(query) ||
-                    session.summary?.lowercase()?.contains(query) == true ||
                     session.gitBranch?.lowercase()?.contains(query) == true ||
                     session.worktreeName?.lowercase()?.contains(query) == true
             }
