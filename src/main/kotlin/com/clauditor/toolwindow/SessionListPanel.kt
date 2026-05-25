@@ -90,15 +90,36 @@ class SessionListPanel(
         table.setShowGrid(false)
         table.rowHeight = JBUI.scale(24)
 
+        // 3-state click cycle: asc → desc → unsorted (= model order, which the service already
+        // returns sortedByDescending { modified } so unsorted == MRU).
+        val sorter = object : javax.swing.table.TableRowSorter<SessionTableModel>(tableModel) {
+            override fun toggleSortOrder(column: Int) {
+                val keys = sortKeys
+                if (keys.size == 1 && keys[0].column == column &&
+                    keys[0].sortOrder == javax.swing.SortOrder.DESCENDING) {
+                    sortKeys = emptyList()
+                } else {
+                    super.toggleSortOrder(column)
+                }
+            }
+        }
+        sorter.setSortable(0, false)  // status icon column: inert
+        sorter.setComparator(1, String.CASE_INSENSITIVE_ORDER)  // Name
+        if (worktreeMode) {
+            sorter.setComparator(2, String.CASE_INSENSITIVE_ORDER)  // Worktree
+            // col 3 = Last Used (Long), col 4 = Msgs (Int) — natural Comparable ordering is correct
+        }
+        table.rowSorter = sorter
+
         val cm = table.columnModel
         if (worktreeMode) {
-            cm.getColumn(1).preferredWidth = 140  // Name
-            cm.getColumn(2).preferredWidth = 100  // Worktree
-            cm.getColumn(3).preferredWidth = 400  // First Prompt
+            cm.getColumn(1).preferredWidth = 180  // Name
+            cm.getColumn(2).preferredWidth = 140  // Worktree
+            cm.getColumn(3).preferredWidth = 110  // Last Used
             cm.getColumn(4).preferredWidth = 50   // Msgs
         } else {
-            cm.getColumn(1).preferredWidth = 140  // Name
-            cm.getColumn(2).preferredWidth = 400  // First Prompt
+            cm.getColumn(1).preferredWidth = 240  // Name
+            cm.getColumn(2).preferredWidth = 110  // Last Used
             cm.getColumn(3).preferredWidth = 50   // Msgs
         }
     }
