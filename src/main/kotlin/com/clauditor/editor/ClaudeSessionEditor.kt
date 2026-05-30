@@ -834,7 +834,6 @@ class ClaudeSessionEditor(
         var currentAhead = 0
         var currentBehind = 0
         var hasUncommitted = false
-        var isGitHub = false
 
         val commitButton = javax.swing.JButton("Commit").apply {
             isFocusable = false
@@ -850,12 +849,6 @@ class ClaudeSessionEditor(
             isFocusable = false
             isEnabled = false
             toolTipText = "Nothing to merge"
-        }
-        val prButton = javax.swing.JButton("Create PR").apply {
-            isFocusable = false
-            isEnabled = false
-            isVisible = false
-            toolTipText = "Nothing to push"
         }
 
         val wtRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -874,7 +867,6 @@ class ClaudeSessionEditor(
                     currentAhead = info.ahead
                     currentBehind = info.behind
                     hasUncommitted = info.dirty
-                    if (info.isGitHub) isGitHub = true
 
                     statusLabel.text = buildString {
                         append(info.name)
@@ -914,11 +906,10 @@ class ClaudeSessionEditor(
                             WorktreeState.UNKNOWN -> "Status unavailable: ${info.errorDetail ?: "unknown error"}"
                             WorktreeState.OK -> ""
                         }
-                        listOf(commitButton, updateButton, mergeButton, prButton).forEach {
+                        listOf(commitButton, updateButton, mergeButton).forEach {
                             it.isEnabled = false
                             it.toolTipText = frozenTip
                         }
-                        prButton.isVisible = info.isGitHub
                     } else {
                         val wtBranch = info.wtBranch ?: ""
                         val mainBranch = info.mainBranch ?: ""
@@ -939,15 +930,6 @@ class ClaudeSessionEditor(
 
                         commitButton.isEnabled = info.dirty
                         commitButton.toolTipText = if (info.dirty) "Ask Claude to commit changes" else "No uncommitted changes"
-
-                        prButton.isVisible = info.isGitHub
-                        prButton.isEnabled = info.isGitHub && info.ahead > 0 && !info.dirty
-                        prButton.toolTipText = when {
-                            !info.isGitHub -> "Not a GitHub repository"
-                            info.dirty -> "Commit changes first"
-                            info.ahead == 0 -> "No commits to push"
-                            else -> "Ask Claude to create a pull request"
-                        }
                     }
                 }
             }
@@ -956,11 +938,6 @@ class ClaudeSessionEditor(
         commitButton.addActionListener {
             commitButton.isEnabled = false
             sendToTerminal("commit all changes with a descriptive commit message\r")
-        }
-
-        prButton.addActionListener {
-            prButton.isEnabled = false
-            sendToTerminal("push this branch and create a GitHub pull request targeting $currentMainBranch with a descriptive title and summary\r")
         }
 
         updateButton.addActionListener {
@@ -1072,7 +1049,6 @@ class ClaudeSessionEditor(
         branchLabel.alignmentY = java.awt.Component.CENTER_ALIGNMENT
         statusLabel.alignmentY = java.awt.Component.CENTER_ALIGNMENT
         commitButton.alignmentY = java.awt.Component.CENTER_ALIGNMENT
-        prButton.alignmentY = java.awt.Component.CENTER_ALIGNMENT
         updateButton.alignmentY = java.awt.Component.CENTER_ALIGNMENT
         mergeButton.alignmentY = java.awt.Component.CENTER_ALIGNMENT
 
@@ -1083,8 +1059,6 @@ class ClaudeSessionEditor(
             add(statusLabel)
             add(javax.swing.Box.createHorizontalStrut(8))
             add(commitButton)
-            add(javax.swing.Box.createHorizontalStrut(4))
-            add(prButton)
             add(javax.swing.Box.createHorizontalStrut(8))
             add(updateButton)
             add(javax.swing.Box.createHorizontalStrut(4))
@@ -1161,7 +1135,6 @@ class ClaudeSessionEditor(
         val ahead: Int = 0,
         val behind: Int = 0,
         val dirty: Boolean = false,
-        val isGitHub: Boolean = false,
         val errorDetail: String? = null
     )
 
@@ -1204,17 +1177,13 @@ class ClaudeSessionEditor(
             val dirtyResult = execGitWithExitCode(worktreePath, "status", "--porcelain")
             val dirty = dirtyResult.exitCode == 0 && dirtyResult.output.trim().isNotEmpty()
 
-            val remoteResult = execGitWithExitCode(worktreePath, "remote", "get-url", "origin")
-            val isGitHub = remoteResult.exitCode == 0 && remoteResult.output.contains("github.com")
-
             if (inProgress != null) {
                 return WorktreeBranchInfo(
                     state = inProgress,
                     name = name,
                     wtBranch = wtBranch.ifEmpty { null },
                     mainBranch = mainBranch.ifEmpty { null },
-                    dirty = dirty,
-                    isGitHub = isGitHub
+                    dirty = dirty
                 )
             }
 
@@ -1224,8 +1193,7 @@ class ClaudeSessionEditor(
                     name = name,
                     wtBranch = wtBranch.ifEmpty { null },
                     mainBranch = mainBranch.ifEmpty { null },
-                    dirty = dirty,
-                    isGitHub = isGitHub
+                    dirty = dirty
                 )
             }
 
@@ -1241,8 +1209,7 @@ class ClaudeSessionEditor(
                 mainBranch = mainBranch,
                 ahead = ahead,
                 behind = behind,
-                dirty = dirty,
-                isGitHub = isGitHub
+                dirty = dirty
             )
         } catch (e: Exception) {
             log.warn("Failed to compute worktree info for $worktreePath", e)
