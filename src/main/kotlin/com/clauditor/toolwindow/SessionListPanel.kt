@@ -107,8 +107,11 @@ class SessionListPanel(
         sorter.setComparator(1, String.CASE_INSENSITIVE_ORDER)  // Name
         if (worktreeMode) {
             sorter.setComparator(2, String.CASE_INSENSITIVE_ORDER)  // Worktree
-            // col 3 = Last Used (Long), col 4 = Msgs (Int) — natural Comparable ordering is correct
         }
+        // Last Used and Msgs need no explicit comparator: their ColumnInfos declare Long/Integer
+        // via getColumnClass(), so TableRowSorter uses natural Comparable ordering. (Declaring the
+        // class is required — without it the default String class makes the sorter pick a Collator
+        // that throws ClassCastException on the numeric values and silently aborts the sort.)
         table.rowSorter = sorter
 
         val cm = table.columnModel

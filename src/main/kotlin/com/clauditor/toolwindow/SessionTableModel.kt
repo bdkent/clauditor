@@ -78,6 +78,11 @@ private class WorktreeColumnInfo : ColumnInfo<SessionDisplay, String>("Worktree"
 }
 
 private class LastUsedColumnInfo : ColumnInfo<SessionDisplay, Long>("Last Used") {
+    // Declare the real value type so TableRowSorter uses natural (chronological) ordering.
+    // Without this, ColumnInfo's default String class makes the sorter pick a Collator,
+    // which throws ClassCastException on the Long value and silently aborts the sort.
+    override fun getColumnClass(): Class<*> = java.lang.Long::class.java
+
     override fun valueOf(item: SessionDisplay): Long = item.modified.toEpochMilli()
 
     override fun getRenderer(item: SessionDisplay?): javax.swing.table.TableCellRenderer {
@@ -97,5 +102,9 @@ private class LastUsedColumnInfo : ColumnInfo<SessionDisplay, Long>("Last Used")
 }
 
 private class MessagesColumnInfo : ColumnInfo<SessionDisplay, Int>("Msgs") {
+    // Declare Integer so TableRowSorter sorts numerically (Collator would CCE on Int). As a
+    // side effect JTable's default Number renderer right-aligns the counts, which is fine.
+    override fun getColumnClass(): Class<*> = java.lang.Integer::class.java
+
     override fun valueOf(item: SessionDisplay): Int = item.messageCount
 }
