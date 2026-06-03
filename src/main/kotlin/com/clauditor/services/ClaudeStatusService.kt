@@ -73,7 +73,11 @@ class ClaudeStatusService(private val project: Project) : Disposable {
             appendLine("  mv \"\${CLAUDITOR_STATUS_FILE}.\$\$\" \"\$CLAUDITOR_STATUS_FILE\" 2>/dev/null")
             appendLine("fi")
             appendLine("if [ -n \"\$CLAUDITOR_ORIGINAL_STATUSLINE\" ]; then")
-            appendLine("  echo \"\$input\" | \$CLAUDITOR_ORIGINAL_STATUSLINE")
+            // Run through eval so the user's command is shell-parsed the way Claude
+            // itself runs it — honoring tilde, \$VARs, quotes, and pipes. A bare
+            // `\$CLAUDITOR_ORIGINAL_STATUSLINE` only word-splits/globs, which breaks
+            // any command using ~, \$HOME, quoted paths, or pipes.
+            appendLine("  echo \"\$input\" | eval \"\$CLAUDITOR_ORIGINAL_STATUSLINE\"")
             appendLine("fi")
         })
         script.toFile().setExecutable(true)
@@ -198,31 +202,50 @@ class ClaudeStatusService(private val project: Project) : Disposable {
     }
 
     /**
-     * Discovers the user's configured statusLine command by reading the settings cascade:
-     *   1. <project>/.claude/settings.local.json  (highest priority)
-     *   2. <project>/.claude/settings.json
-     *   3. ~/.claude/settings.local.json
-     *   4. ~/.claude/settings.json              (lowest priority)
+     * Discovers the user's configured statusLine command by reading the settings
+     * cascade in Claude Code's own precedence order (highest priority first):
+     *   1. Enterprise-managed policy settings (managed-settings.json)
+     *   2. <project>/.claude/settings.local.json
+     *   3. <project>/.claude/settings.json
+     *   4. ~/.claude/settings.local.json
+     *   5. ~/.claude/settings.json
      */
     fun discoverOriginalStatusLineCommand(): String? {
-        val basePath = project.basePath ?: return readGlobalStatusLineCommand()
-        val paths = listOf(
-            Path.of(basePath, ".claude", "settings.local.json"),
-            Path.of(basePath, ".claude", "settings.json"),
-            Path.of(System.getProperty("user.home"), ".claude", "settings.local.json"),
-            Path.of(System.getProperty("user.home"), ".claude", "settings.json")
-        )
-        for (path in paths) {
+        for (path in settingsCascadePaths()) {
             val cmd = readStatusLineCommand(path)
             if (cmd != null) return cmd
         }
         return null
     }
 
-    private fun readGlobalStatusLineCommand(): String? {
+    /** Ordered settings files Clauditor consults to find the real statusLine command, highest priority first. */
+    private fun settingsCascadePaths(): List<Path> {
         val home = System.getProperty("user.home")
-        return readStatusLineCommand(Path.of(home, ".claude", "settings.local.json"))
-            ?: readStatusLineCommand(Path.of(home, ".claude", "settings.json"))
+        val paths = mutableListOf<Path>()
+        managedSettingsPath()?.let { paths.add(it) }
+        project.basePath?.let { base ->
+            paths.add(Path.of(base, ".claude", "settings.local.json"))
+            paths.add(Path.of(base, ".claude", "settings.json"))
+        }
+        paths.add(Path.of(home, ".claude", "settings.local.json"))
+        paths.add(Path.of(home, ".claude", "settings.json"))
+        return paths
+    }
+
+    /**
+     * Path to the OS-level enterprise-managed Claude settings, which take precedence
+     * over all user/project settings. Returns null on unrecognized platforms.
+     */
+    private fun managedSettingsPath(): Path? {
+        val os = System.getProperty("os.name").lowercase()
+        return when {
+            os.contains("mac") || os.contains("darwin") ->
+                Path.of("/Library/Application Support/ClaudeCode/managed-settings.json")
+            os.contains("win") ->
+                Path.of(System.getenv("ProgramData") ?: "C:\\ProgramData", "ClaudeCode", "managed-settings.json")
+            else ->
+                Path.of("/etc/claude-code/managed-settings.json")
+        }
     }
 
     private fun readStatusLineCommand(path: Path): String? {
