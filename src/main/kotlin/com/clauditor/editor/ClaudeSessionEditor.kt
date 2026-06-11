@@ -37,7 +37,6 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.BorderFactory
@@ -322,7 +321,10 @@ class ClaudeSessionEditor(
         val topPanel = JPanel().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
             add(toolbar)
-            if (isGitRepo) add(createGitToolbar(gitDir!!))
+            // Resolve the git dir at use time: a new-worktree tab has no workingDir
+            // until session linking fills it in, at which point the toolbar should
+            // switch from the main repo to the worktree.
+            if (isGitRepo) add(createGitToolbar { file.workingDir ?: project.basePath })
             if (file.isWorktreeSession) add(createWorktreeToolbar())
         }
 
@@ -635,10 +637,22 @@ class ClaudeSessionEditor(
             .showUnderneathOf(anchor)
     }
 
+    /** Path to this session's transcript JSONL — resolves the worktree project dir when applicable. */
+    private fun transcriptPath(): Path? {
+        val sessionId = file.sessionId ?: return null
+        val basePath = project.basePath ?: return null
+        val workingDir = file.workingDir
+        val projectDir = if (file.isWorktreeSession && workingDir != null) {
+            val wtName = Path.of(workingDir).fileName.toString()
+            com.clauditor.util.ClaudePathEncoder.worktreeProjectDir(basePath, wtName)
+        } else {
+            com.clauditor.util.ClaudePathEncoder.projectDir(basePath)
+        }
+        return projectDir.resolve("$sessionId.jsonl")
+    }
+
     private fun getTranscriptMtime(): Long {
-        val sessionId = file.sessionId ?: return 0L
-        val basePath = project.basePath ?: return 0L
-        val jsonlPath = com.clauditor.util.ClaudePathEncoder.projectDir(basePath).resolve("$sessionId.jsonl")
+        val jsonlPath = transcriptPath() ?: return 0L
         return try { Files.getLastModifiedTime(jsonlPath).toMillis() } catch (_: Exception) { 0L }
     }
 
@@ -649,7 +663,7 @@ class ClaudeSessionEditor(
         return renderer.render(parser.parse(md))
     }
 
-    private fun createGitToolbar(gitDir: String): JComponent {
+    private fun createGitToolbar(resolveGitDir: () -> String?): JComponent {
         val branchLabel = JBLabel(AllIcons.Vcs.Branch).apply {
             border = JBUI.Borders.empty(0, 4)
         }
@@ -676,6 +690,7 @@ class ClaudeSessionEditor(
 
         val gitRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
         fun refresh() {
+            val gitDir = resolveGitDir() ?: return
             if (!gitRefreshInFlight.compareAndSet(false, true)) return
             com.clauditor.util.ClauditorExecutor.submit {
                 try {
@@ -735,6 +750,7 @@ class ClaudeSessionEditor(
         wireToolbarRefresh(::refresh)
 
         commitButton.addActionListener {
+            val gitDir = resolveGitDir() ?: return@addActionListener
             ApplicationManager.getApplication().executeOnPooledThread {
                 try {
                     val pureFiles = getPureSessionFiles(gitDir)
@@ -762,6 +778,7 @@ class ClaudeSessionEditor(
         }
 
         explainButton.addActionListener {
+            val gitDir = resolveGitDir() ?: return@addActionListener
             val mtime = getTranscriptMtime()
             val cached = transientCache["explain"]
             if (cached != null && cached.first == mtime) {
@@ -817,7 +834,8 @@ class ClaudeSessionEditor(
     }
 
     private fun createWorktreeToolbar(): JComponent {
-        val worktreePath = file.workingDir
+        // file.workingDir is read at use time, not captured: a tab born from
+        // "New worktree session" has no workingDir until session linking fills it in.
         val projectPath = project.basePath
 
         val branchLabel = JBLabel(ClaudeSessionIconProvider.TREE_ICON).apply {
@@ -851,8 +869,61 @@ class ClaudeSessionEditor(
             toolTipText = "Nothing to merge"
         }
 
+        val openInIdeButton = javax.swing.JButton("Open in IDE").apply {
+            isFocusable = false
+            addActionListener {
+                file.workingDir?.let { wt ->
+                    com.intellij.ide.impl.ProjectUtil.openOrImport(java.nio.file.Path.of(wt), null, true)
+                }
+            }
+        }
+
+        val openInTerminalButton = javax.swing.JButton("Open in Terminal").apply {
+            isFocusable = false
+            addActionListener {
+                val worktreePath = file.workingDir ?: return@addActionListener
+                try {
+                    val terminal = org.jetbrains.plugins.terminal.TerminalToolWindowManager.getInstance(project)
+                    val runner = org.jetbrains.plugins.terminal.LocalTerminalDirectRunner.createTerminalRunner(project)
+                    val tabState = org.jetbrains.plugins.terminal.TerminalTabState().apply {
+                        myTabName = worktreePath.substringAfterLast('/')
+                        myWorkingDirectory = worktreePath
+                    }
+                    terminal.createNewSession(runner, tabState)
+                } catch (ex: Exception) {
+                    log.warn("Failed to open terminal at $worktreePath", ex)
+                    showNotification("Failed to open terminal: ${ex.message}", NotificationType.ERROR)
+                }
+            }
+        }
+
+        val revealButton = javax.swing.JButton(AllIcons.Actions.MenuOpen).apply {
+            isFocusable = false
+            addActionListener {
+                file.workingDir?.let { wt ->
+                    com.intellij.ide.actions.RevealFileAction.openDirectory(java.io.File(wt))
+                }
+            }
+        }
+
+        // These actions need the worktree path, which a brand-new worktree session
+        // doesn't have until the first message links it. Disabled until then.
+        fun updateOpenButtons() {
+            val hasPath = file.workingDir != null
+            val noPathTip = "Available after the first message — the worktree hasn't been created yet"
+            openInIdeButton.isEnabled = hasPath
+            openInIdeButton.toolTipText = if (hasPath) "Open worktree directory as a separate project" else noPathTip
+            openInTerminalButton.isEnabled = hasPath
+            openInTerminalButton.toolTipText = if (hasPath) "Open a terminal tab in this IDE rooted at the worktree directory" else noPathTip
+            revealButton.isEnabled = hasPath
+            revealButton.toolTipText = if (hasPath) "Reveal worktree directory in file manager" else noPathTip
+        }
+        updateOpenButtons()
+
         val wtRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
         fun refreshBranchStatus() {
+            ApplicationManager.getApplication().invokeLater { updateOpenButtons() }
+            val worktreePath = file.workingDir
             if (worktreePath == null || projectPath == null) return
             if (!wtRefreshInFlight.compareAndSet(false, true)) return
             com.clauditor.util.ClauditorExecutor.submit {
@@ -941,7 +1012,7 @@ class ClaudeSessionEditor(
         }
 
         updateButton.addActionListener {
-            if (worktreePath == null) return@addActionListener
+            val worktreePath = file.workingDir ?: return@addActionListener
             updateButton.isEnabled = false
             ApplicationManager.getApplication().executeOnPooledThread {
                 try {
@@ -1005,46 +1076,6 @@ class ClaudeSessionEditor(
         Disposer.register(sessionDisposable, Disposable { statusService.removeStatusListener(listener) })
 
         wireToolbarRefresh(::refreshBranchStatus)
-
-        val openInIdeButton = javax.swing.JButton("Open in IDE").apply {
-            isFocusable = false
-            toolTipText = "Open worktree directory as a separate project"
-            addActionListener {
-                if (worktreePath != null) {
-                    com.intellij.ide.impl.ProjectUtil.openOrImport(java.nio.file.Path.of(worktreePath), null, true)
-                }
-            }
-        }
-
-        val openInTerminalButton = javax.swing.JButton("Open in Terminal").apply {
-            isFocusable = false
-            toolTipText = "Open a terminal tab in this IDE rooted at the worktree directory"
-            addActionListener {
-                if (worktreePath == null) return@addActionListener
-                try {
-                    val terminal = org.jetbrains.plugins.terminal.TerminalToolWindowManager.getInstance(project)
-                    val runner = org.jetbrains.plugins.terminal.LocalTerminalDirectRunner.createTerminalRunner(project)
-                    val tabState = org.jetbrains.plugins.terminal.TerminalTabState().apply {
-                        myTabName = worktreePath.substringAfterLast('/')
-                        myWorkingDirectory = worktreePath
-                    }
-                    terminal.createNewSession(runner, tabState)
-                } catch (ex: Exception) {
-                    log.warn("Failed to open terminal at $worktreePath", ex)
-                    showNotification("Failed to open terminal: ${ex.message}", NotificationType.ERROR)
-                }
-            }
-        }
-
-        val revealButton = javax.swing.JButton(AllIcons.Actions.MenuOpen).apply {
-            isFocusable = false
-            toolTipText = "Reveal worktree directory in file manager"
-            addActionListener {
-                if (worktreePath != null) {
-                    com.intellij.ide.actions.RevealFileAction.openDirectory(java.io.File(worktreePath))
-                }
-            }
-        }
 
         branchLabel.alignmentY = java.awt.Component.CENTER_ALIGNMENT
         statusLabel.alignmentY = java.awt.Component.CENTER_ALIGNMENT
@@ -1244,15 +1275,7 @@ class ClaudeSessionEditor(
 
     /** Parse the JSONL for Write/Edit tool uses with full operation details. */
     private fun getSessionFileOperations(): List<SessionFileOp> {
-        val sessionId = file.sessionId ?: return emptyList()
-        val projectDir = if (file.isWorktreeSession && file.workingDir != null && project.basePath != null) {
-            // Extract worktree name from workingDir (last path component)
-            val wtName = java.nio.file.Path.of(file.workingDir!!).fileName.toString()
-            com.clauditor.util.ClaudePathEncoder.worktreeProjectDir(project.basePath!!, wtName)
-        } else {
-            com.clauditor.util.ClaudePathEncoder.projectDir(project.basePath ?: return emptyList())
-        }
-        val jsonlPath = projectDir.resolve("$sessionId.jsonl")
+        val jsonlPath = transcriptPath() ?: return emptyList()
         if (!java.nio.file.Files.exists(jsonlPath)) return emptyList()
 
         val ops = mutableListOf<SessionFileOp>()
@@ -1491,20 +1514,22 @@ class ClaudeSessionEditor(
             if (candidate != null) {
                 file.sessionId = candidate.sessionId
                 file.baseName = candidate.tabTitle
+                if (file.workingDir == null && candidate.worktreeName != null && project.basePath != null) {
+                    file.workingDir = com.clauditor.util.ClaudePathEncoder
+                        .worktreeAbsolutePath(project.basePath!!, candidate.worktreeName)
+                }
                 persistence.add(candidate.sessionId)
 
-                // Migrate status monitoring from temp to real session ID
+                // Migrate status monitoring from temp to real session ID.
+                // Keep the original temp file paths — CLAUDITOR_STATUS_FILE/NOTIFY_FILE
+                // were baked into the process env at spawn, so claude keeps writing to
+                // the temp paths for the life of the process.
                 statusService.stopMonitoring(tempMonitoringId)
-                val realStatusFile = statusService.createStatusFilePath(candidate.sessionId)
-                try {
-                    if (Files.exists(tempStatusFile)) {
-                        Files.move(tempStatusFile, realStatusFile, StandardCopyOption.REPLACE_EXISTING)
-                    }
-                } catch (_: Exception) {}
-                // Keep the original notify file path — the process env var hasn't changed
-                statusService.startMonitoring(candidate.sessionId, realStatusFile, notifyFile)
+                statusService.startMonitoring(candidate.sessionId, tempStatusFile, notifyFile)
 
-                refreshTabTitle()
+                // Force: a worktree tab's title doesn't change on link (still the
+                // worktree name), but the tab tooltip now has a session ID to show.
+                refreshTabTitle(force = true)
                 sessionService.removeChangeListener(linkListener)
             }
         }
@@ -1636,9 +1661,9 @@ class ClaudeSessionEditor(
         file.sessionId?.let { OpenSessionsPersistence.getInstance(project).add(it) }
     }
 
-    private fun refreshTabTitle() {
+    private fun refreshTabTitle(force: Boolean = false) {
         val newTitle = file.computeTabTitle()
-        if (newTitle == lastTitle) return
+        if (!force && newTitle == lastTitle) return
         lastTitle = newTitle
         ApplicationManager.getApplication().invokeLater {
             (FileEditorManager.getInstance(project) as? FileEditorManagerEx)
