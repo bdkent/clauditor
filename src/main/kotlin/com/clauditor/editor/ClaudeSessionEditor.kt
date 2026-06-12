@@ -1642,7 +1642,10 @@ class ClaudeSessionEditor(
         versionLabel.text = ""
         versionLinkTarget = null
 
-        currentContent?.let { loadingPanel.remove(it) }
+        // JBLoadingPanel delegates add() into its inner contentPanel but inherits
+        // Container.remove(), so removing via loadingPanel itself is a silent no-op —
+        // the dead session's UI would stay stacked above the new one, eating clicks.
+        currentContent?.let { loadingPanel.contentPanel.remove(it) }
         currentContent = null
 
         file.isThinking = false
@@ -1659,6 +1662,14 @@ class ClaudeSessionEditor(
         startTerminalSession()
         // Cover the external→resume path: showExternalPanel skipped persistence.add, but now we have a live PTY.
         file.sessionId?.let { OpenSessionsPersistence.getInstance(project).add(it) }
+
+        // Nothing re-queries getPreferredFocusedComponent on an in-place swap, so
+        // without this the prompt isn't typeable until the user switches tabs.
+        focusComponent?.let { fc ->
+            ApplicationManager.getApplication().invokeLater {
+                com.intellij.openapi.wm.IdeFocusManager.getInstance(project).requestFocus(fc, true)
+            }
+        }
     }
 
     private fun refreshTabTitle(force: Boolean = false) {
