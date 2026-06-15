@@ -87,7 +87,8 @@ Real-time visibility into what Claude is doing:
 
 The Status tool window tracks your API usage:
 
-- 5-hour and 7-day rate limit bars (green/yellow/red)
+- 5-hour and 7-day rate limit bars (green/yellow/red) on subscription plans (Pro/Max)
+- On non-subscription plans (e.g. Enterprise), where 5h/7d windows don't apply, the bars are replaced by a link to your usage & budget on claude.ai
 - Logged-in account and subscription type
 - Anthropic system status from [status.claude.com](https://status.claude.com)
 - Toggleable vertical/horizontal layout

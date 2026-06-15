@@ -38,12 +38,18 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
     private val systemIcon = JBLabel(AllIcons.General.InspectionsOK)
     private val systemLabel = JBLabel("")
     private val statusLink = HyperlinkLabel("status.claude.com")
+    private val usageLink = HyperlinkLabel("Usage & budget on claude.ai")
     private val pollAlarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD, this)
     private val gson = Gson()
     var isVertical = true
         private set
     private val contentPanel = JPanel()
     private var statusListener: ((String, com.clauditor.model.ClaudeStatus?) -> Unit)? = null
+
+    /** Coarse plan tier from `claude auth status` (free|pro|max|team|enterprise|null). Drives whether the 5h/7d bars make sense. */
+    @Volatile private var subscriptionType: String? = null
+    /** Whether the 5h/7d row is currently shown — tracked so we only rebuild the layout when the gate decision flips. */
+    private var rateLimitsVisible: Boolean = true
 
     init {
         layout = BorderLayout()
@@ -53,12 +59,16 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
 
         authButton.addActionListener { toggleAuth() }
         statusLink.addHyperlinkListener { BrowserUtil.browse("https://status.claude.com") }
+        usageLink.addHyperlinkListener { BrowserUtil.browse("https://claude.ai/settings/usage") }
 
         val statusService = ClaudeStatusService.getInstance(project)
         log.info("Clauditor[${project.name}]: StatusBarPanel init — panel=${System.identityHashCode(this)}, service=${System.identityHashCode(statusService)}")
         val listener: (String, com.clauditor.model.ClaudeStatus?) -> Unit = { sid, _ ->
             log.info("Clauditor[${project.name}]: StatusBarPanel listener fired for $sid, panel=${System.identityHashCode(this)}")
-            ApplicationManager.getApplication().invokeLater { updateRateLimits() }
+            ApplicationManager.getApplication().invokeLater {
+                updateRateLimits()
+                refreshRateLimitVisibility()
+            }
         }
         statusService.addStatusListener(listener)
         statusListener = listener
@@ -78,14 +88,21 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
         contentPanel.removeAll()
         contentPanel.isOpaque = false
 
+        val showRates = shouldShowRateLimits()
+        rateLimitsVisible = showRates
+        // The 5h/7d bars only mean something on subscription plans (Pro/Max). On
+        // non-subscription plans (e.g. enterprise) they're always empty, so swap in
+        // a link to where real usage/budget lives instead — see shouldShowRateLimits().
+        val usageRow = if (showRates) row(JBLabel("5h"), fiveHourBar, JBLabel("7d"), sevenDayBar) else row(usageLink)
+
         if (isVertical) {
             contentPanel.layout = BoxLayout(contentPanel, BoxLayout.Y_AXIS)
-            contentPanel.add(row(JBLabel("5h"), fiveHourBar, JBLabel("7d"), sevenDayBar))
+            contentPanel.add(usageRow)
             contentPanel.add(row(authLabel, authButton))
             contentPanel.add(row(systemIcon, systemLabel, statusLink))
         } else {
             contentPanel.layout = FlowLayout(FlowLayout.LEFT, JBUI.scale(6), JBUI.scale(2))
-            contentPanel.add(row(JBLabel("5h"), fiveHourBar, JBLabel("7d"), sevenDayBar))
+            contentPanel.add(usageRow)
             contentPanel.add(sep())
             contentPanel.add(row(authLabel, authButton))
             contentPanel.add(sep())
@@ -97,6 +114,20 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
 
         contentPanel.revalidate()
         contentPanel.repaint()
+    }
+
+    /** Whether the 5h/7d bars are meaningful for the current plan. Logic lives in [rateLimitsVisibleFor] (pure, tested). */
+    private fun shouldShowRateLimits(): Boolean =
+        rateLimitsVisibleFor(subscriptionType, anyRateLimitsSeen())
+
+    private fun anyRateLimitsSeen(): Boolean =
+        ClaudeStatusService.getInstance(project).getAllStatuses().values.any {
+            it.fiveHourRatePercent != null || it.sevenDayRatePercent != null
+        }
+
+    /** Rebuild only when the gate decision changes, so polling/status ticks don't thrash the layout. Must run on the EDT. */
+    private fun refreshRateLimitVisibility() {
+        if (shouldShowRateLimits() != rateLimitsVisible) rebuildLayout()
     }
 
     private fun row(vararg components: JComponent) = JPanel(
@@ -199,6 +230,7 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
                 val loggedIn = obj?.get("loggedIn")?.asBoolean ?: false
                 val email = obj?.get("email")?.asString ?: ""
                 val sub = obj?.get("subscriptionType")?.asString ?: ""
+                subscriptionType = sub.ifBlank { null }
 
                 log.info("Clauditor: auth parsed — loggedIn=$loggedIn, email=$email, sub=$sub")
 
@@ -212,6 +244,7 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
                         authButton.text = "Login"
                     }
                     authButton.isEnabled = true
+                    refreshRateLimitVisibility()
                 }
             } catch (e: java.io.IOException) {
                 log.warn("Clauditor: refreshAuth IOException — claude CLI not found", e)

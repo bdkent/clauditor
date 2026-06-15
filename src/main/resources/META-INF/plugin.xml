@@ -42,7 +42,7 @@
         <li>Automatic detection of frozen/unresponsive CLI sessions with reconnect prompt</li>
         <li>Context usage progress bar and model info per session</li>
         <li>Effort level and extended-thinking state shown in the tab status bar (CLI 2.1.119+)</li>
-        <li>Rate limit tracking and auth status in the Status panel</li>
+        <li>Status panel shows 5h/7d rate-limit bars on subscription plans (Pro/Max), or a usage &amp; budget link for non-subscription plans (e.g. Enterprise), plus auth status</li>
         <li>CLI version in status bar links to release notes</li>
         <li>Browse and insert rules, agents, skills, and memory files from the Context panel</li>
     </ul>
