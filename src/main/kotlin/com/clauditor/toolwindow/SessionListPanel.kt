@@ -74,6 +74,17 @@ class SessionListPanel(
     private var allSessions: List<SessionDisplay> = emptyList()
     private val changeListener: () -> Unit = { reloadData() }
 
+    // Orphaned-worktree section (worktree mode only): dirs under .claude/worktrees/ with no session.
+    private val orphanListModel = javax.swing.DefaultListModel<OrphanWorktree>()
+    private val orphanList = com.intellij.ui.components.JBList(orphanListModel)
+    private val orphanPanel = JPanel(BorderLayout())
+    private var orphanHeader: com.intellij.ui.components.JBLabel? = null
+    private val orphanRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val tableScroll: JComponent = ScrollPaneFactory.createScrollPane(table)
+    private val centerPanel = JPanel(BorderLayout())
+    // Table on top, orphan list on bottom; user-draggable so orphans never crowd out sessions.
+    private val orphanSplitter = com.intellij.ui.OnePixelSplitter(true, 0.7f)
+
     init {
         setupTable()
         setupLayout()
@@ -174,7 +185,69 @@ class SessionListPanel(
         topBar.add(searchField, BorderLayout.CENTER)
 
         rootPanel.add(topBar, BorderLayout.NORTH)
-        rootPanel.add(ScrollPaneFactory.createScrollPane(table), BorderLayout.CENTER)
+        if (worktreeMode) {
+            setupOrphanSection()
+            centerPanel.add(tableScroll, BorderLayout.CENTER)
+            rootPanel.add(centerPanel, BorderLayout.CENTER)
+        } else {
+            rootPanel.add(tableScroll, BorderLayout.CENTER)
+        }
+    }
+
+    private fun setupOrphanSection() {
+        orphanList.selectionMode = ListSelectionModel.SINGLE_SELECTION
+        orphanList.visibleRowCount = 4
+        orphanList.cellRenderer = OrphanCellRenderer()
+
+        val header = com.intellij.ui.components.JBLabel("Orphaned worktrees").apply {
+            border = JBUI.Borders.empty(4, 6, 2, 6)
+            foreground = UIUtil.getLabelDisabledForeground()
+            toolTipText = "Worktrees under .claude/worktrees/ with no Claude session. " +
+                "Right-click to start a session, delete, or reveal the directory."
+        }
+        orphanHeader = header
+
+        orphanPanel.add(header, BorderLayout.NORTH)
+        orphanPanel.add(ScrollPaneFactory.createScrollPane(orphanList), BorderLayout.CENTER)
+
+        object : DoubleClickListener() {
+            override fun onDoubleClick(event: MouseEvent): Boolean {
+                val orphan = orphanList.selectedValue ?: return false
+                startSessionInOrphan(orphan)
+                return true
+            }
+        }.installOn(orphanList)
+
+        installOrphanContextMenu()
+    }
+
+    private fun installOrphanContextMenu() {
+        val group = DefaultActionGroup().apply {
+            add(object : AnAction("New Session Here", "Start a Claude session in this worktree", com.clauditor.editor.ClaudeSessionIconProvider.TREE_ICON) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    orphanList.selectedValue?.let { startSessionInOrphan(it) }
+                }
+                override fun update(e: AnActionEvent) { e.presentation.isEnabled = orphanList.selectedValue != null }
+                override fun getActionUpdateThread() = ActionUpdateThread.EDT
+            })
+            add(object : AnAction("Open in File Manager", "Reveal the worktree directory", AllIcons.Actions.MenuOpen) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    val orphan = orphanList.selectedValue ?: return
+                    com.intellij.ide.actions.RevealFileAction.openDirectory(java.io.File(orphan.path))
+                }
+                override fun update(e: AnActionEvent) { e.presentation.isEnabled = orphanList.selectedValue != null }
+                override fun getActionUpdateThread() = ActionUpdateThread.EDT
+            })
+            addSeparator()
+            add(object : AnAction("Delete Worktree", "Remove this orphaned worktree", AllIcons.Actions.GC) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    orphanList.selectedValue?.let { deleteOrphan(it) }
+                }
+                override fun update(e: AnActionEvent) { e.presentation.isEnabled = orphanList.selectedValue != null }
+                override fun getActionUpdateThread() = ActionUpdateThread.EDT
+            })
+        }
+        PopupHandler.installPopupMenu(orphanList, group, "ClaudeOrphanWorktreeMenu")
     }
 
     private fun setupDoubleClick() {
@@ -270,14 +343,22 @@ class SessionListPanel(
                         Messages.showWarningDialog(project, "Close the session before deleting it.", "Cannot Delete")
                         return
                     }
-                    val answer = Messages.showYesNoDialog(
-                        project,
-                        "Delete session \"${session.displayName}\"?\n\nThis cannot be undone.",
-                        "Delete Session",
-                        Messages.getWarningIcon()
-                    )
+                    val wt = session.worktreeName
+                    // In worktree mode, if this is the only session referencing the worktree, remove
+                    // the worktree too rather than leaving it orphaned.
+                    val lastForWorktree = worktreeMode && wt != null &&
+                        allSessions.count { it.worktreeName == wt } <= 1
+                    val message = if (lastForWorktree) {
+                        "Delete session \"${session.displayName}\"?\n\n" +
+                            "This is the only session in worktree \"$wt\", so the worktree will also be " +
+                            "removed (git worktree remove).\n\nThis cannot be undone."
+                    } else {
+                        "Delete session \"${session.displayName}\"?\n\nThis cannot be undone."
+                    }
+                    val answer = Messages.showYesNoDialog(project, message, "Delete Session", Messages.getWarningIcon())
                     if (answer == Messages.YES) {
                         sessionService.deleteSession(session.sessionId)
+                        if (lastForWorktree) deleteWorktreeAfterSession(wt!!)
                     }
                 }
                 override fun update(e: AnActionEvent) {
@@ -302,6 +383,7 @@ class SessionListPanel(
             if (worktreeMode) it.worktreeName != null else it.worktreeName == null
         }
         applyFilter()
+        if (worktreeMode) refreshOrphans()
     }
 
     private fun applyFilter() {
@@ -325,8 +407,175 @@ class SessionListPanel(
         }
     }
 
+    /** Recompute the orphaned-worktree list off the EDT (dir scan + git). Single-flight. */
+    private fun refreshOrphans() {
+        val basePath = project.basePath ?: return
+        if (!orphanRefreshInFlight.compareAndSet(false, true)) return
+        com.clauditor.util.ClauditorExecutor.submit {
+            try {
+                val sessionNames = sessionService.getSessions().mapNotNull { it.worktreeName }.toSet()
+                val orphans = WorktreeInspector.findOrphans(basePath, sessionNames)
+                ApplicationManager.getApplication().invokeLater {
+                    orphanListModel.clear()
+                    orphans.forEach { orphanListModel.addElement(it) }
+                    updateOrphanVisibility()
+                }
+            } finally {
+                orphanRefreshInFlight.set(false)
+            }
+        }
+    }
+
+    private fun updateOrphanVisibility() {
+        val n = orphanListModel.size()
+        orphanHeader?.text = "Orphaned worktrees ($n)"
+        if (n > 0 && orphanSplitter.parent == null) {
+            centerPanel.remove(tableScroll)
+            orphanSplitter.firstComponent = tableScroll
+            orphanSplitter.secondComponent = orphanPanel
+            centerPanel.add(orphanSplitter, BorderLayout.CENTER)
+        } else if (n == 0 && orphanSplitter.parent != null) {
+            centerPanel.remove(orphanSplitter)
+            orphanSplitter.firstComponent = null
+            orphanSplitter.secondComponent = null
+            centerPanel.add(tableScroll, BorderLayout.CENTER)
+        }
+        centerPanel.revalidate()
+        centerPanel.repaint()
+    }
+
+    private fun startSessionInOrphan(orphan: OrphanWorktree) {
+        // Optimistically drop it — creating a session makes it non-orphan; a later reload re-adds
+        // it if the session never materializes.
+        orphanListModel.removeElement(orphan)
+        updateOrphanVisibility()
+        onNewSession(orphan.name)
+    }
+
+    private fun deleteOrphan(orphan: OrphanWorktree) {
+        val basePath = project.basePath ?: return
+        if (orphan.registered) {
+            val branchLine = orphan.branch?.let { "\nand deletes branch \"$it\" if it is fully merged." } ?: "."
+            val answer = Messages.showYesNoDialog(
+                project,
+                "Delete worktree \"${orphan.name}\"?\n\n" +
+                    "Runs git worktree remove on ${orphan.path}$branchLine\n\nThis cannot be undone.",
+                "Delete Worktree",
+                Messages.getWarningIcon()
+            )
+            if (answer == Messages.YES) runOrphanRemoval(basePath, orphan, force = false)
+        } else {
+            val answer = Messages.showYesNoDialog(
+                project,
+                "\"${orphan.name}\" is not a registered git worktree.\n\n" +
+                    "Delete the directory ${orphan.path}?\n\nThis cannot be undone.",
+                "Delete Directory",
+                Messages.getWarningIcon()
+            )
+            if (answer != Messages.YES) return
+            com.clauditor.util.ClauditorExecutor.submit {
+                val (ok, msg) = WorktreeInspector.deleteDirectory(orphan.path)
+                ApplicationManager.getApplication().invokeLater {
+                    if (!ok) Messages.showErrorDialog(project, "Failed to delete directory:\n$msg", "Delete Failed")
+                    refreshVfs(orphan.path)
+                    refreshOrphans()
+                }
+            }
+        }
+    }
+
+    private fun runOrphanRemoval(basePath: String, orphan: OrphanWorktree, force: Boolean) {
+        com.clauditor.util.ClauditorExecutor.submit {
+            val (ok, output) = WorktreeInspector.remove(basePath, orphan.path, force)
+            if (!ok && !force) {
+                ApplicationManager.getApplication().invokeLater {
+                    val retry = Messages.showYesNoDialog(
+                        project,
+                        "git worktree remove failed:\n\n${output.take(400)}\n\n" +
+                            "Force delete? This discards any uncommitted changes in the worktree.",
+                        "Force Delete Worktree",
+                        "Force Delete", "Cancel",
+                        Messages.getWarningIcon()
+                    )
+                    if (retry == Messages.YES) runOrphanRemoval(basePath, orphan, force = true)
+                }
+                return@submit
+            }
+            if (!ok) {
+                ApplicationManager.getApplication().invokeLater {
+                    Messages.showErrorDialog(project, "Failed to remove worktree:\n${output.take(400)}", "Delete Failed")
+                    refreshOrphans()
+                }
+                return@submit
+            }
+            val branchNote = orphan.branch?.let { branch ->
+                val (deleted, _) = WorktreeInspector.deleteBranchIfMerged(basePath, branch)
+                if (deleted) null else "Kept branch \"$branch\" — it has commits not merged into the base branch."
+            }
+            ApplicationManager.getApplication().invokeLater {
+                if (branchNote != null) Messages.showInfoMessage(project, branchNote, "Worktree Deleted")
+                refreshVfs(orphan.path)
+                refreshOrphans()
+            }
+        }
+    }
+
+    /** Removes the worktree for [worktreeName] after its last session was deleted (no orphan left behind). */
+    private fun deleteWorktreeAfterSession(worktreeName: String) {
+        val basePath = project.basePath ?: return
+        com.clauditor.util.ClauditorExecutor.submit {
+            val entry = WorktreeInspector.list(basePath).firstOrNull {
+                it.path.replace('\\', '/').removeSuffix("/").endsWith("/.claude/worktrees/$worktreeName")
+            }
+            val orphan = OrphanWorktree(
+                name = worktreeName,
+                path = entry?.path ?: ClaudePathEncoder.worktreeAbsolutePath(basePath, worktreeName),
+                branch = entry?.branch,
+                registered = entry != null
+            )
+            ApplicationManager.getApplication().invokeLater {
+                if (orphan.registered) {
+                    runOrphanRemoval(basePath, orphan, force = false)
+                } else if (Files.exists(java.nio.file.Path.of(orphan.path))) {
+                    com.clauditor.util.ClauditorExecutor.submit {
+                        val (ok, msg) = WorktreeInspector.deleteDirectory(orphan.path)
+                        ApplicationManager.getApplication().invokeLater {
+                            if (!ok) Messages.showErrorDialog(project, "Failed to delete directory:\n$msg", "Delete Failed")
+                            refreshVfs(orphan.path)
+                            refreshOrphans()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Tell the IDE's VFS that a directory changed on disk so the Project view / editors refresh. */
+    private fun refreshVfs(path: String) {
+        val parent = java.nio.file.Path.of(path).parent ?: return
+        val vf = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(parent) ?: return
+        com.intellij.openapi.vfs.VfsUtil.markDirtyAndRefresh(true, true, true, vf)
+    }
+
     override fun dispose() {
         sessionService.removeChangeListener(changeListener)
+    }
+
+    private class OrphanCellRenderer : com.intellij.ui.ColoredListCellRenderer<OrphanWorktree>() {
+        override fun customizeCellRenderer(
+            list: javax.swing.JList<out OrphanWorktree>, value: OrphanWorktree?, index: Int,
+            selected: Boolean, hasFocus: Boolean
+        ) {
+            if (value == null) return
+            icon = com.clauditor.editor.ClaudeSessionIconProvider.TREE_ICON
+            append(value.name, com.intellij.ui.SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
+            val hint = when {
+                !value.registered -> "  — unregistered directory"
+                value.branch != null -> "  — ${value.branch}"
+                else -> "  — detached HEAD"
+            }
+            append(hint, com.intellij.ui.SimpleTextAttributes.GRAYED_ATTRIBUTES)
+        }
     }
 
     private data class ActionMeta(

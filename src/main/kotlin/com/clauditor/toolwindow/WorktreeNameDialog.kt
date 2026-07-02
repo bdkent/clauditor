@@ -1,5 +1,6 @@
 package com.clauditor.toolwindow
 
+import com.clauditor.util.ClaudePathEncoder
 import com.clauditor.util.ProcessHelper
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
@@ -238,6 +239,19 @@ data class WorktreeEntry(
     val prunableReason: String?
 )
 
+/**
+ * A worktree directory under `.claude/worktrees/` that has no Claude session associated
+ * with it (all sessions deleted, created then abandoned, or created outside the plugin).
+ * [registered] is true when git still tracks it as a worktree (the normal case);
+ * false for a leftover directory git no longer knows about.
+ */
+data class OrphanWorktree(
+    val name: String,
+    val path: String,
+    val branch: String?,
+    val registered: Boolean
+)
+
 enum class BaseBranchState { SYNCED, LOCAL_AHEAD, LOCAL_BEHIND, LOCAL_DIVERGED, OTHER_BRANCH, NO_REMOTE_DEFAULT, NO_LOCAL_DEFAULT, UNKNOWN }
 
 data class BaseBranchInfo(
@@ -273,6 +287,85 @@ object WorktreeInspector {
                 extraEnv = mapOf("GIT_OPTIONAL_LOCKS" to "0")
             )
             (res.exitCode == 0) to res.output
+        } catch (e: Exception) {
+            false to (e.message ?: "exception")
+        }
+    }
+
+    /**
+     * Worktree directories under `.claude/worktrees/` that have no session in [sessionWorktreeNames].
+     * Joined against `git worktree list` so each carries its real branch and registration status.
+     */
+    fun findOrphans(projectDir: String, sessionWorktreeNames: Set<String>): List<OrphanWorktree> {
+        val names = try {
+            ClaudePathEncoder.worktreeNames(projectDir)
+        } catch (_: Exception) {
+            return emptyList()
+        }
+        val registered = list(projectDir)
+        return names
+            .filter { it !in sessionWorktreeNames }
+            .map { name ->
+                val entry = registered.firstOrNull { matchesWorktreeDir(it.path, name) }
+                OrphanWorktree(
+                    name = name,
+                    path = entry?.path ?: ClaudePathEncoder.worktreeAbsolutePath(projectDir, name),
+                    branch = entry?.branch,
+                    registered = entry != null
+                )
+            }
+            .sortedBy { it.name.lowercase() }
+    }
+
+    private fun matchesWorktreeDir(entryPath: String, name: String): Boolean =
+        entryPath.replace('\\', '/').removeSuffix("/").endsWith("/.claude/worktrees/$name")
+
+    /** Removes a registered worktree (directory + git registration). `--force` discards uncommitted changes. */
+    fun remove(projectDir: String, worktreePath: String, force: Boolean): Pair<Boolean, String> {
+        return try {
+            val cmd = if (force) {
+                arrayOf("git", "-C", projectDir, "worktree", "remove", "--force", worktreePath)
+            } else {
+                arrayOf("git", "-C", projectDir, "worktree", "remove", worktreePath)
+            }
+            val res = ProcessHelper.execWithTimeout(
+                command = cmd,
+                timeoutMs = 15_000,
+                extraEnv = mapOf("GIT_OPTIONAL_LOCKS" to "0")
+            )
+            (res.exitCode == 0) to res.output
+        } catch (e: Exception) {
+            false to (e.message ?: "exception")
+        }
+    }
+
+    /**
+     * Deletes [branch] only if it is fully merged — `git branch -d` refuses otherwise, so
+     * unmerged commits are never silently dropped. Returns (deleted, git output).
+     */
+    fun deleteBranchIfMerged(projectDir: String, branch: String): Pair<Boolean, String> {
+        return try {
+            val res = ProcessHelper.execWithTimeout(
+                command = arrayOf("git", "-C", projectDir, "branch", "-d", branch),
+                timeoutMs = 15_000,
+                extraEnv = mapOf("GIT_OPTIONAL_LOCKS" to "0")
+            )
+            (res.exitCode == 0) to res.output
+        } catch (e: Exception) {
+            false to (e.message ?: "exception")
+        }
+    }
+
+    /** Recursively deletes a leftover directory that git no longer tracks as a worktree. */
+    fun deleteDirectory(path: String): Pair<Boolean, String> {
+        return try {
+            val dir = Path.of(path)
+            if (Files.exists(dir)) {
+                Files.walk(dir).use { paths ->
+                    paths.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
+                }
+            }
+            true to ""
         } catch (e: Exception) {
             false to (e.message ?: "exception")
         }
