@@ -66,14 +66,20 @@ class ClaudeSessionVirtualFile(
         it.isWorktreeSession = isWorktreeSession
     }
 
-    fun computeTabTitle(): String = when {
-        isExternallyOpen -> "\u2197 $baseName"                    // ↗ external session
-        isUnresponsive -> "$baseName \u2298"                       // ⊘ unresponsive
-        notifyState == "permission_prompt" -> "$baseName \u26A0"  // ⚠ needs permission
-        notifyState == "idle_prompt" -> "$baseName \u25CB"        // ○ waiting for input
-        notifyState?.startsWith("tool:") == true -> "$baseName \u2699" // ⚙ tool in use
-        notifyState == "compact" -> "$baseName \u21BB"            // ↻ compacting
-        isThinking -> "$baseName \u25CF"                          // ● thinking
-        else -> baseName
+    // Status is rendered as a fixed-size icon badge (see ClaudeSessionIconProvider), NOT
+    // baked into the title text — a text glyph has a variable advance width, so toggling
+    // it resized the tab and reflowed the whole strip. Returning null means "idle": the
+    // badge slot is reserved but drawn empty, so the tab width is identical in every state.
+    fun statusGlyph(): String? = when {
+        isExternallyOpen -> "↗"                      // ↗ external session
+        isUnresponsive -> "⊘"                        // ⊘ unresponsive
+        notifyState == "permission_prompt" -> "⚠"    // ⚠ needs permission
+        notifyState == "idle_prompt" -> "○"          // ○ waiting for input
+        notifyState?.startsWith("tool:") == true -> "⚙" // ⚙ tool in use
+        notifyState == "compact" -> "↻"              // ↻ compacting
+        isThinking -> "●"                            // ● thinking
+        else -> null                                 // idle — no badge, slot stays reserved and empty
     }
+
+    fun computeTabTitle(): String = baseName
 }

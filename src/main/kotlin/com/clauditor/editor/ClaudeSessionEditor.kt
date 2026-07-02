@@ -1456,9 +1456,12 @@ class ClaudeSessionEditor(
     }
 
     private fun refreshTabTitle(force: Boolean = false) {
-        val newTitle = file.computeTabTitle()
-        if (!force && newTitle == lastTitle) return
-        lastTitle = newTitle
+        // The status glyph now lives in the tab icon, not the title text, so the name alone
+        // no longer changes when Claude's state cycles. Key the dedup on glyph + name so a
+        // pure status change still triggers updateFilePresentation (which refreshes the icon).
+        val signature = "${file.statusGlyph()} ${file.computeTabTitle()}"
+        if (!force && signature == lastTitle) return
+        lastTitle = signature
         ApplicationManager.getApplication().invokeLater {
             (FileEditorManager.getInstance(project) as? FileEditorManagerEx)
                 ?.updateFilePresentation(file)
