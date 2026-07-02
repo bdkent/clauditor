@@ -63,8 +63,6 @@ class ClaudeSessionEditor(
     private var historyPanel: MessageHistoryPanel? = null
     private var historySplitter: JBSplitter? = null
     @Volatile private var lastTitle: String? = null
-    private val transientCache = mutableMapOf<String, Pair<Long, String>>() // key -> (mtime, result)
-    private var summarizeButton: javax.swing.JButton? = null
     private var maxEffortButton: javax.swing.JButton? = null
     private var reconnectButton: javax.swing.JButton? = null
     private val contextProgress = JProgressBar(0, 100).apply {
@@ -256,7 +254,6 @@ class ClaudeSessionEditor(
                     }
                 }
             }
-            summarizeButton?.isEnabled = !active
             refreshTabTitle()
         }
 
@@ -477,164 +474,10 @@ class ClaudeSessionEditor(
         }
         rightPanel.add(historyToggle)
 
-        summarizeButton = javax.swing.JButton("Summarize").apply {
-            isFocusable = false
-            toolTipText = "Summarize this conversation using a transient fork"
-            addActionListener {
-                val btn = this
-                val mtime = getTranscriptMtime()
-                val cached = transientCache["summarize"]
-                if (cached != null && cached.first == mtime) {
-                    showTransientResult(btn, cached.second)
-                } else {
-                    runTransientQuery(btn, "Summarize this conversation concisely. Focus on what was decided, what was done, and what's pending. Use markdown formatting.", cacheKey = "summarize")
-                }
-            }
-        }
-        rightPanel.add(summarizeButton!!)
-
         val toolbar = JPanel(BorderLayout())
         toolbar.add(leftPanel, BorderLayout.WEST)
         toolbar.add(rightPanel, BorderLayout.EAST)
         return toolbar
-    }
-
-    private fun runTransientQuery(anchor: JComponent, prompt: String, cacheKey: String? = null) {
-        val sessionId = file.sessionId ?: return
-        val workingDir = file.workingDir ?: project.basePath ?: return
-
-        // Show thinking balloon
-        val balloon = com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
-            .createBalloonBuilder(JBLabel("  Thinking\u2026  "))
-            .setFadeoutTime(0)
-            .setAnimationCycle(0)
-            .setHideOnClickOutside(false)
-            .setHideOnAction(false)
-            .setFillColor(UIManager.getColor("Panel.background") ?: Color(60, 63, 65))
-            .createBalloon()
-        balloon.show(
-            com.intellij.ui.awt.RelativePoint.getSouthOf(anchor),
-            com.intellij.openapi.ui.popup.Balloon.Position.below
-        )
-
-        AppExecutorUtil.getAppScheduledExecutorService().execute {
-            try {
-                val settings = com.clauditor.settings.ClauditorSettings.getInstance()
-                val claudeBin = settings.resolveClaudeBinary()
-                val res = com.clauditor.util.ProcessHelper.execWithTimeout(
-                    command = arrayOf(
-                        claudeBin, "-p",
-                        "--resume", sessionId,
-                        "--fork-session",
-                        "--no-session-persistence",
-                        "--model", settings.state.transientQueryModel,
-                        "--append-system-prompt", "You are answering a query from a plugin UI popup. Respond ONLY with the requested content. No conversational filler, no follow-up questions, no commentary about your own actions.",
-                        prompt
-                    ),
-                    timeoutMs = 120_000,
-                    workDir = workingDir,
-                    extraEnv = settings.environmentOverrides()
-                )
-                val result = res.output.trim()
-
-                ApplicationManager.getApplication().invokeLater {
-                    balloon.hide()
-                    if (project.isDisposed) return@invokeLater
-                    if (cacheKey != null) {
-                        transientCache[cacheKey] = getTranscriptMtime() to result
-                    }
-                    showTransientResult(anchor, result)
-                }
-            } catch (e: Exception) {
-                ApplicationManager.getApplication().invokeLater {
-                    balloon.hide()
-                    if (!project.isDisposed) {
-                        showTransientResult(anchor, "Error: ${e.message}")
-                    }
-                }
-            }
-        }
-    }
-
-    private fun runStandaloneQuery(anchor: JComponent, prompt: String, cacheKey: String? = null) {
-        val workingDir = file.workingDir ?: project.basePath ?: return
-
-        val balloon = com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
-            .createBalloonBuilder(JBLabel("  Thinking\u2026  "))
-            .setFadeoutTime(0)
-            .setAnimationCycle(0)
-            .setHideOnClickOutside(false)
-            .setHideOnAction(false)
-            .setFillColor(UIManager.getColor("Panel.background") ?: Color(60, 63, 65))
-            .createBalloon()
-        balloon.show(
-            com.intellij.ui.awt.RelativePoint.getSouthOf(anchor),
-            com.intellij.openapi.ui.popup.Balloon.Position.below
-        )
-
-        AppExecutorUtil.getAppScheduledExecutorService().execute {
-            try {
-                val settings = com.clauditor.settings.ClauditorSettings.getInstance()
-                val claudeBin = settings.resolveClaudeBinary()
-                val res = com.clauditor.util.ProcessHelper.execWithTimeout(
-                    command = arrayOf(
-                        claudeBin, "-p",
-                        "--no-session-persistence",
-                        "--model", settings.state.transientQueryModel,
-                        "--append-system-prompt", "You are answering a query from a plugin UI popup. Respond ONLY with the requested content. No conversational filler, no follow-up questions, no commentary about your own actions.",
-                        prompt
-                    ),
-                    timeoutMs = 120_000,
-                    workDir = workingDir,
-                    extraEnv = settings.environmentOverrides()
-                )
-                val result = res.output.trim()
-
-                ApplicationManager.getApplication().invokeLater {
-                    balloon.hide()
-                    if (project.isDisposed) return@invokeLater
-                    if (cacheKey != null) {
-                        transientCache[cacheKey] = getTranscriptMtime() to result
-                    }
-                    showTransientResult(anchor, result)
-                }
-            } catch (e: Exception) {
-                ApplicationManager.getApplication().invokeLater {
-                    balloon.hide()
-                    if (!project.isDisposed) {
-                        showTransientResult(anchor, "Error: ${e.message}")
-                    }
-                }
-            }
-        }
-    }
-
-    private fun showTransientResult(anchor: JComponent, text: String) {
-        val html = markdownToHtml(text)
-        val styleConfig = com.intellij.ui.components.JBHtmlPaneStyleConfiguration.builder().apply {
-            enableInlineCodeBackground = true
-            enableCodeBlocksBackground = true
-        }.build()
-        val paneConfig = com.intellij.ui.components.JBHtmlPaneConfiguration()
-        val htmlPane = com.intellij.ui.components.JBHtmlPane(styleConfig, paneConfig).apply {
-            this.text = html
-            isEditable = false
-            border = JBUI.Borders.empty(8)
-        }
-        Disposer.register(sessionDisposable, htmlPane)
-
-        val scrollPane = javax.swing.JScrollPane(htmlPane).apply {
-            preferredSize = java.awt.Dimension(550, 350)
-            border = null
-        }
-        com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
-            .createComponentPopupBuilder(scrollPane, htmlPane)
-            .setTitle("Summary")
-            .setResizable(true)
-            .setMovable(true)
-            .setRequestFocus(true)
-            .createPopup()
-            .showUnderneathOf(anchor)
     }
 
     /** Path to this session's transcript JSONL — resolves the worktree project dir when applicable. */
@@ -649,18 +492,6 @@ class ClaudeSessionEditor(
             com.clauditor.util.ClaudePathEncoder.projectDir(basePath)
         }
         return projectDir.resolve("$sessionId.jsonl")
-    }
-
-    private fun getTranscriptMtime(): Long {
-        val jsonlPath = transcriptPath() ?: return 0L
-        return try { Files.getLastModifiedTime(jsonlPath).toMillis() } catch (_: Exception) { 0L }
-    }
-
-    private fun markdownToHtml(md: String): String {
-        val extensions = listOf(org.commonmark.ext.gfm.tables.TablesExtension.create())
-        val parser = org.commonmark.parser.Parser.builder().extensions(extensions).build()
-        val renderer = org.commonmark.renderer.html.HtmlRenderer.builder().extensions(extensions).build()
-        return renderer.render(parser.parse(md))
     }
 
     private fun createGitToolbar(resolveGitDir: () -> String?): JComponent {
@@ -680,12 +511,6 @@ class ClaudeSessionEditor(
             isFocusable = false
             isEnabled = false
             toolTipText = "No session changes to commit"
-        }
-
-        val explainButton = javax.swing.JButton("Explain Changes").apply {
-            isFocusable = false
-            isEnabled = false
-            toolTipText = "No session changes to explain"
         }
 
         val gitRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -725,10 +550,6 @@ class ClaudeSessionEditor(
                             bySession > 0 -> "Files have mixed changes from other sources"
                             else -> "No session changes to commit"
                         }
-                        explainButton.isEnabled = bySession > 0
-                        explainButton.toolTipText = if (bySession > 0)
-                            "Explain changes to $bySession file${if (bySession > 1) "s" else ""}"
-                        else "No session changes to explain"
                     }
                 } catch (_: Exception) {
                 } finally {
@@ -777,40 +598,6 @@ class ClaudeSessionEditor(
             }
         }
 
-        explainButton.addActionListener {
-            val gitDir = resolveGitDir() ?: return@addActionListener
-            val mtime = getTranscriptMtime()
-            val cached = transientCache["explain"]
-            if (cached != null && cached.first == mtime) {
-                showTransientResult(explainButton, cached.second)
-                return@addActionListener
-            }
-            ApplicationManager.getApplication().executeOnPooledThread {
-                try {
-                    val sessionFiles = getSessionTouchedFiles()
-                    val status = execGit(gitDir, "status", "--porcelain").trim()
-                    val changedBySession = if (status.isEmpty()) emptyList() else status.lines()
-                        .filter { it.isNotBlank() }
-                        .mapNotNull { line ->
-                            val path = line.drop(3).split(" -> ").last().trim()
-                            if (path.isNotEmpty()) java.nio.file.Path.of(gitDir, path).toAbsolutePath().toString() else null
-                        }
-                        .filter { it in sessionFiles }
-                        .map { java.nio.file.Path.of(gitDir).relativize(java.nio.file.Path.of(it)).toString() }
-
-                    if (changedBySession.isEmpty()) return@executeOnPooledThread
-
-                    val diff = execGit(gitDir, "diff", "--", *changedBySession.toTypedArray())
-                    val fileList = changedBySession.joinToString(", ")
-                    val prompt = "Explain ONLY the following uncommitted changes. Do not discuss any other files or changes. Files: $fileList\n\nFor each file, describe what changed and why based on the conversation context. Output ONLY the explanation in markdown — no preamble, no questions, no commentary.\n\n$diff"
-
-                    ApplicationManager.getApplication().invokeLater {
-                        runTransientQuery(explainButton, prompt, cacheKey = "explain")
-                    }
-                } catch (_: Exception) {}
-            }
-        }
-
         branchLabel.alignmentY = java.awt.Component.CENTER_ALIGNMENT
         branchName.alignmentY = java.awt.Component.CENTER_ALIGNMENT
         statsLabel.alignmentY = java.awt.Component.CENTER_ALIGNMENT
@@ -824,8 +611,6 @@ class ClaudeSessionEditor(
             add(statsLabel)
             add(javax.swing.Box.createHorizontalStrut(8))
             add(commitButton)
-            add(javax.swing.Box.createHorizontalStrut(4))
-            add(explainButton)
         }
 
         val bar = JPanel(BorderLayout())
@@ -1625,9 +1410,7 @@ class ClaudeSessionEditor(
         focusComponent = null
         historyPanel = null
         historySplitter = null
-        summarizeButton = null
         maxEffortButton = null
-        transientCache.clear()
         lastTitle = null
 
         // Reset class-level UI components so they don't show stale state until the new PTY reports back.

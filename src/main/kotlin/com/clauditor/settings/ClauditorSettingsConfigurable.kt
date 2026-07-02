@@ -2,7 +2,6 @@ package com.clauditor.settings
 
 import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.options.Configurable
-import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextArea
@@ -12,7 +11,6 @@ import com.intellij.util.ui.JBUI
 import java.awt.Cursor
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import javax.swing.DefaultComboBoxModel
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.JScrollPane
@@ -22,7 +20,6 @@ import javax.swing.SpinnerNumberModel
 class ClauditorSettingsConfigurable : Configurable {
 
     private var panel: JPanel? = null
-    private var transientModelCombo: ComboBox<String>? = null
     private var echoTimeoutSpinner: JSpinner? = null
     private var claudeBinaryField: JBTextField? = null
     private var defaultArgsField: JBTextField? = null
@@ -38,10 +35,6 @@ class ClauditorSettingsConfigurable : Configurable {
     override fun getDisplayName(): String = "Clauditor"
 
     override fun createComponent(): JComponent {
-        transientModelCombo = ComboBox(DefaultComboBoxModel(arrayOf("haiku", "sonnet", "opus"))).apply {
-            toolTipText = "Model used for Summarize, Explain Changes, and Review Memory popup queries"
-        }
-
         echoTimeoutSpinner = JSpinner(SpinnerNumberModel(3000, 1000, 30000, 500)).apply {
             toolTipText = "Milliseconds after user input with no response before marking a session as unresponsive"
         }
@@ -65,7 +58,7 @@ class ClauditorSettingsConfigurable : Configurable {
         }
 
         poolMaxSpinner = JSpinner(SpinnerNumberModel(16, 2, 64, 1)).apply {
-            toolTipText = "Maximum concurrent threads in the Clauditor background pool (git polling, status checks, popup queries). Each open session tab can use up to 2; raise if you see warnings about a saturated pool. Default 16 covers ~8 session tabs across multiple windows."
+            toolTipText = "Maximum concurrent threads in the Clauditor background pool (git polling, status checks). Each open session tab can use up to 2; raise if you see warnings about a saturated pool. Default 16 covers ~8 session tabs across multiple windows."
         }
 
         envColortermCheckbox = JBCheckBox("COLORTERM=truecolor — Enable true color support in terminal output")
@@ -88,9 +81,6 @@ class ClauditorSettingsConfigurable : Configurable {
         }
 
         panel = FormBuilder.createFormBuilder()
-            .addLabeledComponent(JBLabel("Transient query model:"), transientModelCombo!!, 1, false)
-            .addComponentToRightColumn(createHint("Model for Summarize, Explain Changes, and Review Memory popups"), 0)
-            .addSeparator()
             .addLabeledComponent(JBLabel("Unresponsive timeout (ms):"), echoTimeoutSpinner!!, 1, false)
             .addComponentToRightColumn(createHint("Time before a terminal session is flagged as unresponsive"), 0)
             .addSeparator()
@@ -128,8 +118,7 @@ class ClauditorSettingsConfigurable : Configurable {
 
     override fun isModified(): Boolean {
         val settings = ClauditorSettings.getInstance()
-        return transientModelCombo?.item != settings.state.transientQueryModel ||
-            (echoTimeoutSpinner?.value as? Int) != settings.state.echoTimeoutMs ||
+        return (echoTimeoutSpinner?.value as? Int) != settings.state.echoTimeoutMs ||
             claudeBinaryField?.text?.trim() != settings.state.claudeBinaryPath ||
             defaultArgsField?.text?.trim() != settings.state.defaultSessionArgs ||
             envColortermCheckbox?.isSelected != settings.state.envColorterm ||
@@ -144,7 +133,6 @@ class ClauditorSettingsConfigurable : Configurable {
 
     override fun apply() {
         val settings = ClauditorSettings.getInstance()
-        settings.state.transientQueryModel = transientModelCombo?.item ?: "sonnet"
         settings.state.echoTimeoutMs = (echoTimeoutSpinner?.value as? Int) ?: 3000
         settings.state.claudeBinaryPath = claudeBinaryField?.text?.trim() ?: ""
         settings.state.defaultSessionArgs = defaultArgsField?.text?.trim() ?: ""
@@ -160,7 +148,6 @@ class ClauditorSettingsConfigurable : Configurable {
 
     override fun reset() {
         val settings = ClauditorSettings.getInstance()
-        transientModelCombo?.item = settings.state.transientQueryModel
         echoTimeoutSpinner?.value = settings.state.echoTimeoutMs
         claudeBinaryField?.text = settings.state.claudeBinaryPath
         defaultArgsField?.text = settings.state.defaultSessionArgs
@@ -176,7 +163,6 @@ class ClauditorSettingsConfigurable : Configurable {
 
     override fun disposeUIResources() {
         panel = null
-        transientModelCombo = null
         echoTimeoutSpinner = null
         claudeBinaryField = null
         defaultArgsField = null

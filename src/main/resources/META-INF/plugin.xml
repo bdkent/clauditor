@@ -27,15 +27,6 @@
         <li>Worktree toolbar with commit, PR, rebase, and merge controls, plus open-in-IDE/terminal/file-manager shortcuts</li>
     </ul>
 
-    <p><b>Transient Popup Queries</b></p>
-    <ul>
-        <li><b>Summarize</b> — one-click conversation summary via a transient forked session, displayed in a popup</li>
-        <li><b>Explain Changes</b> — explains uncommitted session changes using conversation context and git diff</li>
-        <li><b>Review Memory</b> — analyzes auto-memory files and suggests promotions to rules</li>
-        <li>Results rendered as formatted HTML with markdown support (tables, code blocks, lists)</li>
-        <li>Cached per query type, invalidated when the session advances</li>
-    </ul>
-
     <p><b>Live Status &amp; Context</b></p>
     <ul>
         <li>Tab indicators: thinking, idle, waiting for permission, compacting, unresponsive (⊘)</li>
@@ -58,7 +49,7 @@
     <p><b>Settings Panel</b></p>
     <ul>
         <li>Configure under Settings &gt; Tools &gt; Clauditor</li>
-        <li>Transient query model (haiku/sonnet/opus), unresponsive timeout, claude binary path, default session args</li>
+        <li>Unresponsive timeout, claude binary path, default session args</li>
         <li>Status line refresh interval (requires CLI 2.1.97+)</li>
         <li>Branch status refresh interval for worktree/git toolbars</li>
         <li>Background pool max threads (cap on Clauditor's owned thread pool, isolated from IDE-shared pool)</li>

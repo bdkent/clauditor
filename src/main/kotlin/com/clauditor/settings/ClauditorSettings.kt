@@ -14,9 +14,6 @@ import com.intellij.openapi.components.Storage
 class ClauditorSettings : PersistentStateComponent<ClauditorSettings.State> {
 
     class State {
-        /** Model used for transient popup queries (Summarize, Explain Changes, Review Memory). */
-        @JvmField var transientQueryModel: String = "sonnet"
-
         /** Milliseconds before a terminal session is considered unresponsive after user input. */
         @JvmField var echoTimeoutMs: Int = 3000
 
