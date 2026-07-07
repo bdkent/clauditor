@@ -691,6 +691,25 @@ class ClaudeSessionEditor(
             }
         }
 
+        val showChangesButton = javax.swing.JButton("Show Changes").apply {
+            isFocusable = false
+            addActionListener {
+                val wt = file.workingDir ?: return@addActionListener
+                com.clauditor.util.ClauditorExecutor.submit {
+                    val result = com.clauditor.toolwindow.WorktreeChanges.compute(wt)
+                    ApplicationManager.getApplication().invokeLater {
+                        if (result.changes.isEmpty()) {
+                            showNotification(result.error ?: "No changes in this worktree.", NotificationType.INFORMATION)
+                        } else {
+                            com.clauditor.toolwindow.WorktreeChanges.openDialog(
+                                project, "Changes — ${wt.substringAfterLast('/')}", wt, result.changes
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // These actions need the worktree path, which a brand-new worktree session
         // doesn't have until the first message links it. Disabled until then.
         fun updateOpenButtons() {
@@ -702,6 +721,8 @@ class ClaudeSessionEditor(
             openInTerminalButton.toolTipText = if (hasPath) "Open a terminal tab in this IDE rooted at the worktree directory" else noPathTip
             revealButton.isEnabled = hasPath
             revealButton.toolTipText = if (hasPath) "Reveal worktree directory in file manager" else noPathTip
+            showChangesButton.isEnabled = hasPath
+            showChangesButton.toolTipText = if (hasPath) "Show this worktree's diff (committed vs base + uncommitted)" else noPathTip
         }
         updateOpenButtons()
 
@@ -881,6 +902,7 @@ class ClaudeSessionEditor(
             add(mergeButton)
         }
 
+        showChangesButton.alignmentY = java.awt.Component.CENTER_ALIGNMENT
         openInIdeButton.alignmentY = java.awt.Component.CENTER_ALIGNMENT
         openInTerminalButton.alignmentY = java.awt.Component.CENTER_ALIGNMENT
         revealButton.alignmentY = java.awt.Component.CENTER_ALIGNMENT
@@ -888,6 +910,8 @@ class ClaudeSessionEditor(
         val rightPanel = JPanel().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
             border = JBUI.Borders.empty(2, 4)
+            add(showChangesButton)
+            add(javax.swing.Box.createHorizontalStrut(4))
             add(openInIdeButton)
             add(javax.swing.Box.createHorizontalStrut(4))
             add(openInTerminalButton)

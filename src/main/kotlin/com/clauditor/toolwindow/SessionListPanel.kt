@@ -238,6 +238,14 @@ class SessionListPanel(
                 override fun update(e: AnActionEvent) { e.presentation.isEnabled = orphanList.selectedValue != null }
                 override fun getActionUpdateThread() = ActionUpdateThread.EDT
             })
+            add(object : AnAction("Show Changes", "Show this worktree's diff (committed vs base + uncommitted)", AllIcons.Actions.Diff) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    val orphan = orphanList.selectedValue ?: return
+                    showWorktreeChanges(orphan.path, "Changes — ${orphan.name}")
+                }
+                override fun update(e: AnActionEvent) { e.presentation.isEnabled = orphanList.selectedValue != null }
+                override fun getActionUpdateThread() = ActionUpdateThread.EDT
+            })
             addSeparator()
             add(object : AnAction("Delete Worktree", "Remove this orphaned worktree", AllIcons.Actions.GC) {
                 override fun actionPerformed(e: AnActionEvent) {
@@ -308,6 +316,21 @@ class SessionListPanel(
                 }
                 override fun getActionUpdateThread() = ActionUpdateThread.EDT
             })
+            if (worktreeMode) {
+                add(object : AnAction("Show Changes", "Show this worktree's diff (committed vs base + uncommitted)", AllIcons.Actions.Diff) {
+                    override fun actionPerformed(e: AnActionEvent) {
+                        val session = selectedSession() ?: return
+                        val wt = session.worktreeName ?: return
+                        val basePath = project.basePath ?: return
+                        val dir = ClaudePathEncoder.worktreeAbsolutePath(basePath, wt)
+                        showWorktreeChanges(dir, "Changes — $wt")
+                    }
+                    override fun update(e: AnActionEvent) {
+                        e.presentation.isEnabled = selectedSession()?.worktreeName != null
+                    }
+                    override fun getActionUpdateThread() = ActionUpdateThread.EDT
+                })
+            }
             add(object : AnAction("Open Session Folder", "Reveal session files in the project directory", AllIcons.Actions.MenuOpen) {
                 override fun actionPerformed(e: AnActionEvent) {
                     val basePath = project.basePath ?: return
@@ -545,6 +568,20 @@ class SessionListPanel(
                             refreshOrphans()
                         }
                     }
+                }
+            }
+        }
+    }
+
+    /** Compute a worktree's diff off the EDT, then open IntelliJ's native diff viewer. */
+    private fun showWorktreeChanges(worktreeDir: String, title: String) {
+        com.clauditor.util.ClauditorExecutor.submit {
+            val result = WorktreeChanges.compute(worktreeDir)
+            ApplicationManager.getApplication().invokeLater {
+                if (result.changes.isEmpty()) {
+                    Messages.showInfoMessage(project, result.error ?: "No changes in this worktree.", "Worktree Changes")
+                } else {
+                    WorktreeChanges.openDialog(project, title, worktreeDir, result.changes)
                 }
             }
         }
