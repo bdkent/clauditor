@@ -26,6 +26,7 @@
         <li>Create isolated Claude sessions in git worktrees with their own branches; creation dialog surfaces base-branch state so you know when local main is ahead/behind the remote</li>
         <li>Worktree toolbar with commit, PR, rebase, and merge controls, plus open-in-IDE/terminal/file-manager shortcuts</li>
         <li>Worktrees tab lists orphaned worktrees (directories with no session) with actions to start a session there or delete the worktree</li>
+        <li>Show Changes: review a worktree's diff in a tree + inline-diff browser — its commits vs the base branch, plus uncommitted working-tree changes — from the Worktrees tab or session toolbar</li>
     </ul>
 
     <p><b>Live Status &amp; Context</b></p>
