@@ -313,7 +313,12 @@ class ClaudeSessionEditor(
 
         // Layout: toolbar(s) on top, splitter in center, context bar at bottom
         val gitDir = file.workingDir ?: project.basePath
-        val isGitRepo = gitDir != null && java.io.File(gitDir, ".git").let { it.isDirectory || it.isFile }
+        // A worktree session's parent project is a git repo by definition, and its own
+        // dir may not exist yet (the CLI creates it asynchronously) — so don't gate the
+        // git toolbar on the dir's existence, or a brand-new worktree tab would never get
+        // one. The toolbar's refresh handles the not-yet-created window itself.
+        val isGitRepo = file.isWorktreeSession ||
+            (gitDir != null && java.io.File(gitDir, ".git").let { it.isDirectory || it.isFile })
 
         val topPanel = JPanel().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
@@ -516,6 +521,11 @@ class ClaudeSessionEditor(
         val gitRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
         fun refresh() {
             val gitDir = resolveGitDir() ?: return
+            // A brand-new worktree dir may not exist yet (the CLI creates it async). Until
+            // its `.git` link is in place, `git -C <dir>` would walk up to the parent
+            // project repo and report the wrong branch ("main"), so skip — the new-worktree
+            // dir poll re-fires refresh() the moment the worktree appears.
+            if (!java.io.File(gitDir, ".git").exists()) return
             if (!gitRefreshInFlight.compareAndSet(false, true)) return
             com.clauditor.util.ClauditorExecutor.submit {
                 try {
@@ -569,6 +579,7 @@ class ClaudeSessionEditor(
         Disposer.register(sessionDisposable, Disposable { statusService.removeStatusListener(listener) })
 
         wireToolbarRefresh(::refresh)
+        wireNewWorktreeDirPoll(::refresh)
 
         commitButton.addActionListener {
             val gitDir = resolveGitDir() ?: return@addActionListener
@@ -731,6 +742,18 @@ class ClaudeSessionEditor(
             ApplicationManager.getApplication().invokeLater { updateOpenButtons() }
             val worktreePath = file.workingDir
             if (worktreePath == null || projectPath == null) return
+            // Brand-new worktree the CLI hasn't created yet (dir absent, session not linked):
+            // show a neutral "creating…" pending state rather than a red "missing", and don't
+            // run git against a nonexistent dir. The new-worktree dir poll re-fires this until
+            // the worktree appears, at which point the normal path renders the real branch.
+            if (file.sessionId == null && !java.nio.file.Files.isDirectory(java.nio.file.Path.of(worktreePath))) {
+                ApplicationManager.getApplication().invokeLater {
+                    statusLabel.text = worktreePath.substringAfterLast('/') + "  — creating…"
+                    statusLabel.foreground = UIManager.getColor("Label.disabledForeground")
+                    statusLabel.toolTipText = "Setting up the worktree…"
+                }
+                return
+            }
             if (!wtRefreshInFlight.compareAndSet(false, true)) return
             com.clauditor.util.ClauditorExecutor.submit {
                 val info = try {
@@ -882,6 +905,7 @@ class ClaudeSessionEditor(
         Disposer.register(sessionDisposable, Disposable { statusService.removeStatusListener(listener) })
 
         wireToolbarRefresh(::refreshBranchStatus)
+        wireNewWorktreeDirPoll(::refreshBranchStatus)
 
         branchLabel.alignmentY = java.awt.Component.CENTER_ALIGNMENT
         statusLabel.alignmentY = java.awt.Component.CENTER_ALIGNMENT
@@ -954,6 +978,40 @@ class ClaudeSessionEditor(
         project.messageBus.connect(sessionDisposable).subscribe(
             FileEditorManagerListener.FILE_EDITOR_MANAGER, selectionListener
         )
+    }
+
+    /**
+     * A brand-new worktree tab knows its directory up front (set eagerly at creation), but
+     * the CLI creates that directory asynchronously a moment after spawn. During that window
+     * nothing else refreshes the toolbars: pre-link status events are dropped (they key on
+     * sessionId, still null), and the periodic branch-status poll may be disabled. This
+     * bridges the gap with a short bounded poll that re-runs [refresh] until the worktree
+     * dir exists or the session links — then the normal triggers take over.
+     *
+     * No-ops for anything that isn't a not-yet-created new worktree (no workingDir, dir
+     * already present, or already linked), so it's safe to wire from every toolbar.
+     */
+    private fun wireNewWorktreeDirPoll(refresh: () -> Unit) {
+        val worktreeDir = file.workingDir ?: return
+        if (file.sessionId != null) return
+        if (java.io.File(worktreeDir).isDirectory) return
+
+        val alarm = com.intellij.util.Alarm(com.intellij.util.Alarm.ThreadToUse.POOLED_THREAD, sessionDisposable)
+        val attempts = java.util.concurrent.atomic.AtomicInteger(0)
+        lateinit var tick: Runnable
+        tick = Runnable {
+            refresh()
+            // Stop once the worktree exists (refresh above just rendered it), once linking
+            // wired the normal triggers, or after a backstop cap (~30s) so an abandoned
+            // creation doesn't poll forever.
+            val done = java.io.File(worktreeDir).isDirectory ||
+                file.sessionId != null ||
+                attempts.incrementAndGet() >= 40
+            if (!done && !alarm.isDisposed) {
+                alarm.addRequest(tick, 750)
+            }
+        }
+        if (!alarm.isDisposed) alarm.addRequest(tick, 750)
     }
 
     private fun showNotification(message: String, type: NotificationType) {

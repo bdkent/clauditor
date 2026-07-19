@@ -123,7 +123,18 @@ class ClaudeSessionsToolWindowFactory : ToolWindowFactory, DumbAware {
     }
 
     private fun openNewWorktreeSession(project: Project, worktreeName: String) {
-        val file = ClaudeSessionVirtualFile(worktreeName, newWorktreeName = worktreeName)
+        val file = ClaudeSessionVirtualFile(worktreeName, newWorktreeName = worktreeName).apply {
+            // The worktree directory is deterministic from the name (the CLI normalizes
+            // '/'→'+', mirrored by WorktreeInspector.normalize), so resolve it up front —
+            // the git/worktree toolbars can show the real branch before the first message
+            // instead of falling back to the main repo and showing "main". The CLI creates
+            // the dir asynchronously after spawn; the toolbars tolerate it not existing yet.
+            if (project.basePath != null) {
+                workingDir = ClaudePathEncoder.worktreeAbsolutePath(
+                    project.basePath!!, WorktreeInspector.normalize(worktreeName)
+                )
+            }
+        }
         FileEditorManager.getInstance(project).openFile(file, true)
     }
 
