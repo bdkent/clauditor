@@ -18,8 +18,6 @@ import com.intellij.util.Alarm
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Container
-import java.io.BufferedReader
-import java.io.FileReader
 import java.nio.file.Files
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -47,7 +45,13 @@ class MessageHistoryPanel(
     private val list = JBList(listModel)
     private val gson = Gson()
     private val refreshAlarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD, this)
-    private var lastMessageCount = 0
+
+    // Transcripts reach tens of MB, so parse only what was appended since the last pass
+    // rather than the whole file every 3s. [entries] accumulates across passes.
+    private val entries = mutableListOf<MessageEntry>()
+    private val tail = com.clauditor.util.JsonlTailReader()
+    private var lastPath: java.nio.file.Path? = null
+    @Volatile private var visible = false
 
     init {
         border = JBUI.Borders.empty()
@@ -76,18 +80,41 @@ class MessageHistoryPanel(
         add(ScrollPaneFactory.createScrollPane(list), BorderLayout.CENTER)
 
         Disposer.register(parent, this)
-        loadMessages()
+        trackVisibility()
+        ApplicationManager.getApplication().executeOnPooledThread { loadMessages() }
         scheduleRefresh()
     }
 
     private fun scheduleRefresh() {
         if (refreshAlarm.isDisposed) return
         refreshAlarm.addRequest({
-            loadMessages()
+            // Nothing to show while the sidebar is collapsed, and the tail read makes
+            // catching up on becoming visible cheap.
+            if (visible) loadMessages()
             scheduleRefresh()
         }, 3000)
     }
 
+    /** Reload immediately when the sidebar is opened, rather than waiting out the tick. */
+    private fun trackVisibility() {
+        visible = isShowing
+        addHierarchyListener { e ->
+            if (e.changeFlags and java.awt.event.HierarchyEvent.SHOWING_CHANGED.toLong() == 0L) return@addHierarchyListener
+            val nowVisible = isShowing
+            val became = nowVisible && !visible
+            visible = nowVisible
+            if (became) ApplicationManager.getApplication().executeOnPooledThread { loadMessages() }
+        }
+    }
+
+    /**
+     * Parse whatever has been appended to the transcript since the last call and append the
+     * new user messages to the list.
+     *
+     * Synchronized because the alarm thread, the visibility listener, and construction can
+     * all reach it; the tail state must not interleave.
+     */
+    @Synchronized
     private fun loadMessages() {
         val sessionId = sessionIdProvider() ?: return
         val cwd = workingDirProvider() ?: project.basePath ?: return
@@ -95,32 +122,46 @@ class MessageHistoryPanel(
             .map { it.resolve("$sessionId.jsonl") }
             .firstOrNull { Files.exists(it) } ?: return
 
-        val entries = mutableListOf<MessageEntry>()
+        // A different transcript (session linked or rebound) invalidates the tail state.
+        if (jsonlPath != lastPath) {
+            lastPath = jsonlPath
+            tail.reset()
+            entries.clear()
+        }
 
+        // Only repaint when the *list* changed: appended lines are mostly assistant/tool
+        // records, and rebuilding the model on every one would churn the EDT for nothing.
+        var changed = false
         try {
-            BufferedReader(FileReader(jsonlPath.toFile())).use { reader ->
-                reader.lineSequence().forEach { line ->
-                    if (line.isBlank()) return@forEach
-                    try {
-                        val obj = gson.fromJson(line, JsonObject::class.java)
-                        if (obj.get("type")?.asString != "user") return@forEach
-                        val text = extractText(obj) ?: return@forEach
-                        // Use the first line as the search key for terminal buffer matching
-                        val firstLine = text.lineSequence().first().trim()
-                        if (firstLine.isNotEmpty()) {
-                            entries.add(MessageEntry(text, firstLine))
-                        }
-                    } catch (_: Exception) {}
-                }
-            }
-        } catch (_: Exception) {}
+            tail.consume(
+                jsonlPath,
+                onRestart = { entries.clear(); changed = true },
+                onLine = { line -> parseUserMessage(line)?.let { entries.add(it); changed = true } }
+            )
+        } catch (_: Exception) {
+            return
+        }
+        if (!changed) return
 
-        if (entries.size != lastMessageCount) {
-            lastMessageCount = entries.size
-            ApplicationManager.getApplication().invokeLater {
-                listModel.clear()
-                entries.forEach { listModel.addElement(it) }
-            }
+        val snapshot = entries.toList()
+        ApplicationManager.getApplication().invokeLater {
+            listModel.clear()
+            snapshot.forEach { listModel.addElement(it) }
+        }
+    }
+
+    /** A user message from one transcript line, or null for any other record type. */
+    private fun parseUserMessage(line: String): MessageEntry? {
+        if (line.isBlank()) return null
+        return try {
+            val obj = gson.fromJson(line, JsonObject::class.java)
+            if (obj.get("type")?.asString != "user") return null
+            val text = extractText(obj) ?: return null
+            // Use the first line as the search key for terminal buffer matching
+            val firstLine = text.lineSequence().first().trim()
+            if (firstLine.isEmpty()) null else MessageEntry(text, firstLine)
+        } catch (_: Exception) {
+            null
         }
     }
 
