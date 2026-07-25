@@ -24,8 +24,10 @@ class ClaudeSessionsToolWindowFactory : ToolWindowFactory, DumbAware {
 
         val getStatus = { sessionId: String ->
             when {
-                sessionService.isExternallyOpen(sessionId) -> SessionStatus.OPEN_EXTERNALLY
+                // Plugin ownership wins: a session open in a Clauditor tab is never
+                // "external", even if a stray/background claude process references it.
                 isOpenInPlugin(project, sessionId) -> SessionStatus.OPEN_IN_PLUGIN
+                sessionService.isExternallyOpen(sessionId) -> SessionStatus.OPEN_EXTERNALLY
                 else -> SessionStatus.AVAILABLE
             }
         }

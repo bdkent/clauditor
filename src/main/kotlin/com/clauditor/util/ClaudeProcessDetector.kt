@@ -19,7 +19,7 @@ object ClaudeProcessDetector {
     fun detectExternalSessions(projectPath: String?, sessions: List<com.clauditor.model.SessionDisplay> = emptyList()): Set<String> {
         if (projectPath == null) return emptySet()
         return try {
-            val clauditorPids = getClauditorPids()
+            val excludedPids = getSelfExcludedPids()
             val sessionsDir = Path.of(System.getProperty("user.home"), ".claude", "sessions")
             if (!Files.isDirectory(sessionsDir)) return emptySet()
 
@@ -33,7 +33,12 @@ object ClaudeProcessDetector {
                             val sessionId = obj.get("sessionId")?.asString ?: return@forEach
                             val cwd = obj.get("cwd")?.asString ?: return@forEach
 
-                            if (cwd != projectPath || pid in clauditorPids || !isProcessAlive(pid)) return@forEach
+                            // Claude Code's daemon/background architecture writes session
+                            // files for its own spare processes (kind="bg"). Those are never
+                            // a user's external terminal, so don't count them.
+                            if (obj.get("kind")?.asString == "bg") return@forEach
+
+                            if (cwd != projectPath || pid in excludedPids || !isProcessAlive(pid)) return@forEach
 
                             result.add(sessionId)
 
@@ -54,7 +59,14 @@ object ClaudeProcessDetector {
         }
     }
 
-    private fun getClauditorPids(): Set<Int> {
+    /**
+     * PIDs that must never be treated as an "external" claude session, gathered from a
+     * single `ps` pass:
+     *  - Clauditor-owned processes, identified by our injected `--settings clauditor-settings-*`.
+     *  - Claude Code's own daemon/background pool (`daemon`, `bg-pty-host`, `bg-spare`),
+     *    which shares the project cwd but isn't a user's external terminal.
+     */
+    private fun getSelfExcludedPids(): Set<Int> {
         return try {
             val res = ProcessHelper.execWithTimeout(
                 command = arrayOf("ps", "-A", "-o", "pid,args", "-ww"),
@@ -62,7 +74,10 @@ object ClaudeProcessDetector {
             )
             res.output.lines()
                 .map { it.trim() }
-                .filter { it.contains("clauditor-settings") }
+                .filter { line ->
+                    line.contains("clauditor-settings") ||
+                        line.contains(Regex("""\bclaude\b.*\b(daemon|bg-pty-host|bg-spare)\b"""))
+                }
                 .mapNotNull { it.split(Regex("\\s+"), limit = 2).firstOrNull()?.toIntOrNull() }
                 .toSet()
         } catch (_: Exception) {
