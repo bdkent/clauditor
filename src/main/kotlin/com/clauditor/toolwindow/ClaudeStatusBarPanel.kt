@@ -51,6 +51,10 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
     /** Whether the 5h/7d row is currently shown — tracked so we only rebuild the layout when the gate decision flips. */
     private var rateLimitsVisible: Boolean = true
 
+    /** Whether this tool window is on screen; gates the CLI + network refreshes. */
+    @Volatile private var visible = false
+    @Volatile private var lastExpensiveRefresh = 0L
+
     init {
         layout = BorderLayout()
         border = JBUI.Borders.empty(2, 8)
@@ -75,6 +79,7 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
         Disposer.register(project, this)
 
         rebuildLayout()
+        trackVisibility()
         refreshAll()
         schedulePoll()
     }
@@ -338,18 +343,58 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
 
     private fun refreshAll() {
         updateRateLimits()
+        lastExpensiveRefresh = System.currentTimeMillis()
         refreshAuth()
         refreshSystemStatus()
     }
 
+    /**
+     * Periodic refresh, split by what each part actually costs.
+     *
+     * `updateRateLimits` just re-renders numbers the status service already has, so it stays
+     * on the fast tick. `refreshAuth` spawns the Claude CLI (~0.8 s) and `refreshSystemStatus`
+     * makes an outbound HTTPS request — both previously ran every 60 s forever, even with this
+     * tool window closed. Neither answer changes on that timescale, so they now run at
+     * [EXPENSIVE_REFRESH_MS] and only while the panel is on screen.
+     */
     private fun schedulePoll() {
         if (pollAlarm.isDisposed) return
         pollAlarm.addRequest({
-            ApplicationManager.getApplication().invokeLater { updateRateLimits() }
-            refreshAuth()
-            refreshSystemStatus()
+            if (visible) {
+                ApplicationManager.getApplication().invokeLater { updateRateLimits() }
+                refreshExpensiveIfStale()
+            }
             schedulePoll()
         }, 60_000)
+    }
+
+    /** Re-run the CLI/network checks only if their last result has aged out. */
+    private fun refreshExpensiveIfStale() {
+        val now = System.currentTimeMillis()
+        if (now - lastExpensiveRefresh < EXPENSIVE_REFRESH_MS) return
+        lastExpensiveRefresh = now
+        refreshAuth()
+        refreshSystemStatus()
+    }
+
+    /** Show current data as soon as the panel is opened, rather than waiting for a tick. */
+    private fun trackVisibility() {
+        visible = isShowing
+        addHierarchyListener { e ->
+            if (e.changeFlags and java.awt.event.HierarchyEvent.SHOWING_CHANGED.toLong() == 0L) return@addHierarchyListener
+            val nowVisible = isShowing
+            val became = nowVisible && !visible
+            visible = nowVisible
+            if (became) {
+                updateRateLimits()
+                refreshExpensiveIfStale()
+            }
+        }
+    }
+
+    private companion object {
+        /** How often the CLI auth check and the status.claude.com fetch may re-run. */
+        const val EXPENSIVE_REFRESH_MS = 15 * 60 * 1000L
     }
 
     override fun dispose() {
