@@ -57,6 +57,15 @@ class ClaudeSessionEditor(
     private val rootDisposable = Disposer.newDisposable("claude-editor-${file.sessionId ?: file.baseName}")
     private val loadingPanel = JBLoadingPanel(BorderLayout(), rootDisposable)
     private val loadingStopped = AtomicBoolean(false)
+
+    /**
+     * Whether this tab is actually on screen. Toolbar polling is gated on it: the periodic
+     * refresh used to run for every *open* tab, so N background tabs each kept re-querying git
+     * and re-reading the transcript for a toolbar nobody was looking at.
+     *
+     * Maintained from the EDT by a HierarchyListener and read from the poll threads.
+     */
+    @Volatile private var tabShowing = false
     /** Child of rootDisposable; covers everything created per PTY session so refresh() can dispose it without tearing down the editor. */
     private var sessionDisposable: Disposable = Disposer.newDisposable(rootDisposable, "claude-session")
     private var currentContent: JComponent? = null
@@ -128,6 +137,13 @@ class ClaudeSessionEditor(
     init {
         val sessionService = ClaudeSessionService.getInstance(project)
         val persistence = OpenSessionsPersistence.getInstance(project)
+
+        tabShowing = loadingPanel.isShowing
+        loadingPanel.addHierarchyListener { e ->
+            if (e.changeFlags and java.awt.event.HierarchyEvent.SHOWING_CHANGED.toLong() != 0L) {
+                tabShowing = loadingPanel.isShowing
+            }
+        }
 
         Disposer.register(rootDisposable, Disposable { file.sessionId?.let { persistence.remove(it) } })
 
@@ -541,12 +557,15 @@ class ClaudeSessionEditor(
                         }
                     val changed = changedFiles.size
 
-                    val sessionFiles = getSessionTouchedFiles()
+                    // One parse per tick, shared by both consumers — this used to walk the
+                    // whole transcript twice.
+                    val ops = getSessionFileOperations()
+                    val sessionFiles = ops.mapTo(HashSet()) { it.filePath }
                     val bySession = if (sessionFiles.isNotEmpty()) {
                         changedFiles.count { it in sessionFiles }
                     } else 0
 
-                    val pureFiles = getPureSessionFiles(gitDir)
+                    val pureFiles = getPureSessionFiles(gitDir, ops)
 
                     ApplicationManager.getApplication().invokeLater {
                         branchName.text = branch
@@ -587,7 +606,7 @@ class ClaudeSessionEditor(
             val gitDir = resolveGitDir() ?: return@addActionListener
             ApplicationManager.getApplication().executeOnPooledThread {
                 try {
-                    val pureFiles = getPureSessionFiles(gitDir)
+                    val pureFiles = getPureSessionFiles(gitDir, getSessionFileOperations())
                     if (pureFiles.isEmpty()) return@executeOnPooledThread
 
                     // Stage only the session's pure files
@@ -961,7 +980,10 @@ class ClaudeSessionEditor(
         val refreshAlarm = com.intellij.util.Alarm(com.intellij.util.Alarm.ThreadToUse.POOLED_THREAD, sessionDisposable)
         lateinit var tick: Runnable
         tick = Runnable {
-            refresh()
+            // Only the visible tab polls. A background tab's toolbar is repainted by the
+            // selection listener below the moment it comes to the front, so nothing is stale
+            // by the time anyone can see it.
+            if (tabShowing) refresh()
             val sec = com.clauditor.settings.ClauditorSettings.getInstance().state.branchStatusRefreshSeconds
             if (sec > 0 && !refreshAlarm.isDisposed) {
                 refreshAlarm.addRequest(tick, sec * 1000)
@@ -1047,46 +1069,62 @@ class ClaudeSessionEditor(
     )
 
     /** Parse the JSONL for Write/Edit tool uses with full operation details. */
+    // Incremental parse state for this session's Write/Edit operations. Only the ops are
+    // retained, which measured ~2% of transcript bytes (0.86 MB for a 44 MB session) — cheap
+    // enough to keep, and it saves re-reading the whole transcript on every toolbar tick.
+    private val opsTail = com.clauditor.util.JsonlTailReader()
+    private val cachedOps = mutableListOf<SessionFileOp>()
+    private var cachedOpsPath: java.nio.file.Path? = null
+
+    /**
+     * The session's file-writing operations, oldest first.
+     *
+     * Parses only what the transcript has gained since the last call; the op list is
+     * append-only, so accumulating it is equivalent to re-reading from the top.
+     */
+    @Synchronized
     private fun getSessionFileOperations(): List<SessionFileOp> {
         val jsonlPath = transcriptPath() ?: return emptyList()
         if (!java.nio.file.Files.exists(jsonlPath)) return emptyList()
 
-        val ops = mutableListOf<SessionFileOp>()
+        // Session linked or rebound to a different transcript: start over.
+        if (jsonlPath != cachedOpsPath) {
+            cachedOpsPath = jsonlPath
+            opsTail.reset()
+            cachedOps.clear()
+        }
+
         try {
-            java.io.BufferedReader(java.io.FileReader(jsonlPath.toFile())).use { reader ->
-                val gson = com.google.gson.Gson()
-                reader.lineSequence().forEach { line ->
-                    if (line.isBlank()) return@forEach
-                    try {
-                        val obj = gson.fromJson(line, com.google.gson.JsonObject::class.java)
-                        if (obj.get("type")?.asString != "assistant") return@forEach
-                        val content = obj.getAsJsonObject("message")
-                            ?.getAsJsonArray("content") ?: return@forEach
-                        for (block in content) {
-                            if (!block.isJsonObject) continue
-                            val b = block.asJsonObject
-                            if (b.get("type")?.asString != "tool_use") continue
-                            val name = b.get("name")?.asString ?: continue
-                            val input = b.getAsJsonObject("input") ?: continue
-                            val filePath = input.get("file_path")?.asString ?: continue
-                            when (name) {
-                                "Write" -> ops.add(SessionFileOp(filePath, "Write",
-                                    content = input.get("content")?.asString))
-                                "Edit" -> ops.add(SessionFileOp(filePath, "Edit",
-                                    oldString = input.get("old_string")?.asString,
-                                    newString = input.get("new_string")?.asString))
-                            }
-                        }
-                    } catch (_: Exception) {}
+            opsTail.consume(jsonlPath, onRestart = { cachedOps.clear() }) { line ->
+                appendFileOps(line, cachedOps)
+            }
+        } catch (_: Exception) {}
+        return java.util.ArrayList(cachedOps)
+    }
+
+    /** Extract any Write/Edit tool uses on one transcript line into [into]. */
+    private fun appendFileOps(line: String, into: MutableList<SessionFileOp>) {
+        try {
+            val obj = com.google.gson.Gson().fromJson(line, com.google.gson.JsonObject::class.java)
+            if (obj.get("type")?.asString != "assistant") return
+            val content = obj.getAsJsonObject("message")?.getAsJsonArray("content") ?: return
+            for (block in content) {
+                if (!block.isJsonObject) continue
+                val b = block.asJsonObject
+                if (b.get("type")?.asString != "tool_use") continue
+                val name = b.get("name")?.asString ?: continue
+                val input = b.getAsJsonObject("input") ?: continue
+                val filePath = input.get("file_path")?.asString ?: continue
+                when (name) {
+                    "Write" -> into.add(SessionFileOp(filePath, "Write",
+                        content = input.get("content")?.asString))
+                    "Edit" -> into.add(SessionFileOp(filePath, "Edit",
+                        oldString = input.get("old_string")?.asString,
+                        newString = input.get("new_string")?.asString))
                 }
             }
         } catch (_: Exception) {}
-        return ops
     }
-
-    /** Convenience: just the file paths. */
-    private fun getSessionTouchedFiles(): Set<String> =
-        getSessionFileOperations().map { it.filePath }.toSet()
 
     /**
      * Check if the session's changed files are "pure" — i.e. the only changes in each
@@ -1098,8 +1136,7 @@ class ClaudeSessionEditor(
      *
      * Returns the list of pure session files ready to commit, or empty if impure/nothing to commit.
      */
-    private fun getPureSessionFiles(gitDir: String): List<String> {
-        val ops = getSessionFileOperations()
+    private fun getPureSessionFiles(gitDir: String, ops: List<SessionFileOp>): List<String> {
         if (ops.isEmpty()) return emptyList()
 
         val status = execGit(gitDir, "status", "--porcelain").trim()
