@@ -45,11 +45,24 @@ class SessionListPanel(
     private val worktreeMode: Boolean = false
 ) : Disposable {
 
-    private val tableModel = SessionTableModel(getStatus, showWorktreeColumn = worktreeMode)
+    // Worktree mode only: git status for the Git column, swept in the background under the
+    // polling gates in WorktreeStatusCache. Plain sessions all share the project dir, so the
+    // same badge on every row would be noise. Assigned in init (it needs `this` as its
+    // Disposable parent and the table model as its repaint target).
+    private var worktreeStatus: WorktreeStatusCache? = null
+
+    private val tableModel = SessionTableModel(
+        getStatus,
+        showWorktreeColumn = worktreeMode,
+        getWorktreeStatus = if (worktreeMode) { name -> worktreeStatus?.get(name) } else null
+    )
     private val table = object : TableView<SessionDisplay>(tableModel) {
         override fun prepareRenderer(renderer: TableCellRenderer, row: Int, column: Int): Component {
             val c = super.prepareRenderer(renderer, row, column)
             val session = tableModel.getItem(convertRowIndexToModel(row))
+            // The Git column colours itself by git state (amber = uncommitted); the
+            // session-status colouring below would flatten that back to the default.
+            if (worktreeMode && convertColumnIndexToModel(column) == GIT_COLUMN_MODEL_INDEX) return c
             when (getStatus(session.sessionId)) {
                 SessionStatus.OPEN_EXTERNALLY -> {
                     c.foreground = if (isRowSelected(row)) selectionForeground
@@ -86,6 +99,13 @@ class SessionListPanel(
     private val orphanSplitter = com.intellij.ui.OnePixelSplitter(true, 0.7f)
 
     init {
+        if (worktreeMode) {
+            worktreeStatus = WorktreeStatusCache(project, this) {
+                // Rows-updated, not data-changed: the latter clears the selection, and this
+                // fires on a timer — losing the selected row every sweep would be maddening.
+                if (tableModel.rowCount > 0) tableModel.fireTableRowsUpdated(0, tableModel.rowCount - 1)
+            }.also { it.trackVisibility(rootPanel) }
+        }
         setupTable()
         setupLayout()
         setupDoubleClick()
@@ -118,6 +138,8 @@ class SessionListPanel(
         sorter.setComparator(1, String.CASE_INSENSITIVE_ORDER)  // Name
         if (worktreeMode) {
             sorter.setComparator(2, String.CASE_INSENSITIVE_ORDER)  // Worktree
+            // Git (3) needs no comparator: its ColumnInfo declares Integer and ranks on
+            // uncommitted-then-unmerged, so one click sorts the neglected worktrees to the top.
         }
         // Last Used and Msgs need no explicit comparator: their ColumnInfos declare Long/Integer
         // via getColumnClass(), so TableRowSorter uses natural Comparable ordering. (Declaring the
@@ -129,8 +151,9 @@ class SessionListPanel(
         if (worktreeMode) {
             cm.getColumn(1).preferredWidth = 180  // Name
             cm.getColumn(2).preferredWidth = 140  // Worktree
-            cm.getColumn(3).preferredWidth = 110  // Last Used
-            cm.getColumn(4).preferredWidth = 50   // Msgs
+            cm.getColumn(3).preferredWidth = 72   // Git
+            cm.getColumn(4).preferredWidth = 110  // Last Used
+            cm.getColumn(5).preferredWidth = 50   // Msgs
         } else {
             cm.getColumn(1).preferredWidth = 240  // Name
             cm.getColumn(2).preferredWidth = 110  // Last Used
@@ -165,7 +188,11 @@ class SessionListPanel(
             }
         }
         val refreshAction = object : AnAction("Refresh", "Refresh session list", AllIcons.Actions.Refresh) {
-            override fun actionPerformed(e: AnActionEvent) { sessionService.refresh() }
+            override fun actionPerformed(e: AnActionEvent) {
+                sessionService.refresh()
+                // Explicit user action: skip the throttle so the Git column updates now.
+                worktreeStatus?.requestRefresh(force = true)
+            }
         }
         val purgeAction = object : AnAction("Purge Old Sessions", "Delete sessions older than N days", AllIcons.Actions.GC) {
             override fun actionPerformed(e: AnActionEvent) {
@@ -406,7 +433,15 @@ class SessionListPanel(
             if (worktreeMode) it.worktreeName != null else it.worktreeName == null
         }
         applyFilter()
-        if (worktreeMode) refreshOrphans()
+        if (worktreeMode) {
+            refreshOrphans()
+            // Throttled + visibility-gated inside the cache: reloadData fires on every
+            // transcript write, which is continuous while a session is working.
+            worktreeStatus?.apply {
+                setTargets(allSessions.mapNotNull { it.worktreeName })
+                requestRefresh()
+            }
+        }
     }
 
     private fun applyFilter() {
@@ -613,6 +648,11 @@ class SessionListPanel(
             }
             append(hint, com.intellij.ui.SimpleTextAttributes.GRAYED_ATTRIBUTES)
         }
+    }
+
+    private companion object {
+        /** Model index of the Git column in worktree mode: status, Name, Worktree, Git, … */
+        const val GIT_COLUMN_MODEL_INDEX = 3
     }
 
     private data class ActionMeta(

@@ -34,6 +34,7 @@ Run isolated Claude sessions in git worktrees. Each worktree gets its own branch
 - Dedicated toolbar with **commit**, **create PR**, **rebase**, and **merge** controls
 - Open worktree directory in a separate IDE window, in a terminal tab in this IDE, or in a file manager
 - Branch status: ahead/behind tracking vs. your project branch
+- **Git column** — the Worktrees tab shows each worktree's uncommitted file count (`✎3`) and commits not yet in your project branch (`↑2`), so work you forgot to commit or merge is visible without opening the tab; sort by it to bring the neglected worktrees to the top
 - **Orphaned worktrees** — the Worktrees tab lists `.claude/worktrees/` directories that have no session, so you can start a session in one or delete a stale worktree (removes the git worktree, and its branch if already merged) right from the list
 - **Show Changes** — review a worktree's diff in a tree + inline-diff browser: its commits vs the base branch (Committed) and its uncommitted working-tree changes (Uncommitted, editable), opened from the Worktrees tab or the session toolbar
 
