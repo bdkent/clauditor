@@ -6,6 +6,8 @@ import com.clauditor.services.ClaudeStatusService
 import com.clauditor.services.ClaudeTerminalService
 import com.clauditor.services.OpenSessionsPersistence
 import com.clauditor.toolwindow.MessageHistoryPanel
+import com.clauditor.toolwindow.WorktreeInspector
+import com.clauditor.toolwindow.WorktreeState
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
@@ -757,7 +759,7 @@ class ClaudeSessionEditor(
             if (!wtRefreshInFlight.compareAndSet(false, true)) return
             com.clauditor.util.ClauditorExecutor.submit {
                 val info = try {
-                    computeWorktreeInfo(worktreePath, projectPath)
+                    WorktreeInspector.status(worktreePath, projectPath)
                 } finally {
                     wtRefreshInFlight.set(false)
                 }
@@ -1022,102 +1024,6 @@ class ClaudeSessionEditor(
     }
 
     private data class GitResult(val exitCode: Int, val output: String)
-
-    private enum class WorktreeState { OK, REBASING, MERGING, CHERRY_PICKING, DETACHED, MISSING, UNKNOWN }
-
-    private data class WorktreeBranchInfo(
-        val state: WorktreeState,
-        val name: String,
-        val wtBranch: String? = null,
-        val mainBranch: String? = null,
-        val ahead: Int = 0,
-        val behind: Int = 0,
-        val dirty: Boolean = false,
-        val errorDetail: String? = null
-    )
-
-    private fun computeWorktreeInfo(worktreePath: String, projectPath: String): WorktreeBranchInfo {
-        val name = worktreePath.substringAfterLast('/')
-
-        val wtPath = java.nio.file.Path.of(worktreePath)
-        if (!java.nio.file.Files.isDirectory(wtPath)) {
-            return WorktreeBranchInfo(WorktreeState.MISSING, name, errorDetail = "Worktree directory not found at $worktreePath")
-        }
-
-        try {
-            fun gitPathExists(arg: String): Boolean {
-                val r = execGitWithExitCode(worktreePath, "rev-parse", "--git-path", arg)
-                if (r.exitCode != 0) return false
-                val rel = r.output.trim()
-                return rel.isNotEmpty() && java.nio.file.Files.exists(wtPath.resolve(rel))
-            }
-
-            val inProgress = when {
-                gitPathExists("rebase-merge") || gitPathExists("rebase-apply") -> WorktreeState.REBASING
-                gitPathExists("MERGE_HEAD") -> WorktreeState.MERGING
-                gitPathExists("CHERRY_PICK_HEAD") -> WorktreeState.CHERRY_PICKING
-                else -> null
-            }
-
-            val wtBranchResult = execGitWithExitCode(worktreePath, "branch", "--show-current")
-            if (wtBranchResult.exitCode != 0) {
-                return WorktreeBranchInfo(
-                    state = WorktreeState.UNKNOWN,
-                    name = name,
-                    errorDetail = wtBranchResult.output.trim().take(200).ifEmpty { "git branch --show-current failed" }
-                )
-            }
-            val wtBranch = wtBranchResult.output.trim()
-
-            val mainBranchResult = execGitWithExitCode(projectPath, "branch", "--show-current")
-            val mainBranch = if (mainBranchResult.exitCode == 0) mainBranchResult.output.trim() else ""
-
-            val dirtyResult = execGitWithExitCode(worktreePath, "status", "--porcelain")
-            val dirty = dirtyResult.exitCode == 0 && dirtyResult.output.trim().isNotEmpty()
-
-            if (inProgress != null) {
-                return WorktreeBranchInfo(
-                    state = inProgress,
-                    name = name,
-                    wtBranch = wtBranch.ifEmpty { null },
-                    mainBranch = mainBranch.ifEmpty { null },
-                    dirty = dirty
-                )
-            }
-
-            if (wtBranch.isEmpty() || mainBranch.isEmpty()) {
-                return WorktreeBranchInfo(
-                    state = WorktreeState.DETACHED,
-                    name = name,
-                    wtBranch = wtBranch.ifEmpty { null },
-                    mainBranch = mainBranch.ifEmpty { null },
-                    dirty = dirty
-                )
-            }
-
-            val countsResult = execGitWithExitCode(worktreePath, "rev-list", "--left-right", "--count", "$mainBranch...$wtBranch")
-            val parts = if (countsResult.exitCode == 0) countsResult.output.trim().split("\t") else emptyList()
-            val behind = parts.getOrNull(0)?.trim()?.toIntOrNull() ?: 0
-            val ahead = parts.getOrNull(1)?.trim()?.toIntOrNull() ?: 0
-
-            return WorktreeBranchInfo(
-                state = WorktreeState.OK,
-                name = name,
-                wtBranch = wtBranch,
-                mainBranch = mainBranch,
-                ahead = ahead,
-                behind = behind,
-                dirty = dirty
-            )
-        } catch (e: Exception) {
-            log.warn("Failed to compute worktree info for $worktreePath", e)
-            return WorktreeBranchInfo(
-                state = WorktreeState.UNKNOWN,
-                name = name,
-                errorDetail = e.message ?: e.javaClass.simpleName
-            )
-        }
-    }
 
     private fun execGit(workDir: String, vararg args: String): String {
         return execGitWithExitCode(workDir, *args).output
