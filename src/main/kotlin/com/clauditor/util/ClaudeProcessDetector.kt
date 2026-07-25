@@ -85,12 +85,14 @@ object ClaudeProcessDetector {
         }
     }
 
+    /**
+     * In-JVM liveness check. This used to spawn `kill -0` per candidate session file, i.e. a
+     * process per session on every detection sweep (and the sweep runs on a timer); ProcessHandle
+     * answers the same question from the JVM with no child process at all.
+     */
     private fun isProcessAlive(pid: Int): Boolean {
         return try {
-            ProcessHelper.execWithTimeout(
-                command = arrayOf("kill", "-0", pid.toString()),
-                timeoutMs = 5_000
-            ).exitCode == 0
+            ProcessHandle.of(pid.toLong()).map { it.isAlive }.orElse(false)
         } catch (_: Exception) {
             false
         }
