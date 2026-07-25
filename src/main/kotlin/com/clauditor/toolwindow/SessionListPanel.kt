@@ -85,6 +85,10 @@ class SessionListPanel(
     private val searchField = SearchTextField(false)
 
     private var allSessions: List<SessionDisplay> = emptyList()
+
+    /** On-screen state and sweep floor for the orphaned-worktree scan (worktree mode only). */
+    @Volatile private var panelVisible = false
+    @Volatile private var lastOrphanSweep = 0L
     private val changeListener: () -> Unit = { reloadData() }
 
     // Orphaned-worktree section (worktree mode only): dirs under .claude/worktrees/ with no session.
@@ -105,6 +109,14 @@ class SessionListPanel(
                 // fires on a timer — losing the selected row every sweep would be maddening.
                 if (tableModel.rowCount > 0) tableModel.fireTableRowsUpdated(0, tableModel.rowCount - 1)
             }.also { it.trackVisibility(rootPanel) }
+            panelVisible = rootPanel.isShowing
+            rootPanel.addHierarchyListener { e ->
+                if (e.changeFlags and java.awt.event.HierarchyEvent.SHOWING_CHANGED.toLong() == 0L) return@addHierarchyListener
+                val nowVisible = rootPanel.isShowing
+                val became = nowVisible && !panelVisible
+                panelVisible = nowVisible
+                if (became) refreshOrphans(force = true)
+            }
         }
         setupTable()
         setupLayout()
@@ -190,8 +202,9 @@ class SessionListPanel(
         val refreshAction = object : AnAction("Refresh", "Refresh session list", AllIcons.Actions.Refresh) {
             override fun actionPerformed(e: AnActionEvent) {
                 sessionService.refresh()
-                // Explicit user action: skip the throttle so the Git column updates now.
+                // Explicit user action: skip the throttles so both update now.
                 worktreeStatus?.requestRefresh(force = true)
+                if (worktreeMode) refreshOrphans(force = true)
             }
         }
         val purgeAction = object : AnAction("Purge Old Sessions", "Delete sessions older than N days", AllIcons.Actions.GC) {
@@ -465,10 +478,25 @@ class SessionListPanel(
         }
     }
 
-    /** Recompute the orphaned-worktree list off the EDT (dir scan + git). Single-flight. */
-    private fun refreshOrphans() {
+    /**
+     * Recompute the orphaned-worktree list off the EDT (dir scan + `git worktree list`).
+     *
+     * Same gating as the Git column: reloadData() fires on every transcript write, so being
+     * single-flight isn't enough on its own — this also needs to stay off while the tab is
+     * hidden and to coalesce bursts. [force] is for explicit user actions and for the sweeps
+     * that must follow a delete.
+     */
+    private fun refreshOrphans(force: Boolean = false) {
         val basePath = project.basePath ?: return
+        if (!force) {
+            if (!panelVisible) return
+            val now = System.currentTimeMillis()
+            if (now - lastOrphanSweep < ORPHAN_SWEEP_MIN_MS) return
+        }
+        // Stamp only once a sweep actually starts, so a call rejected by the single-flight
+        // guard doesn't push the floor out and delay the next real one.
         if (!orphanRefreshInFlight.compareAndSet(false, true)) return
+        lastOrphanSweep = System.currentTimeMillis()
         com.clauditor.util.ClauditorExecutor.submit {
             try {
                 val sessionNames = sessionService.getSessions().mapNotNull { it.worktreeName }.toSet()
@@ -536,7 +564,7 @@ class SessionListPanel(
                 ApplicationManager.getApplication().invokeLater {
                     if (!ok) Messages.showErrorDialog(project, "Failed to delete directory:\n$msg", "Delete Failed")
                     refreshVfs(orphan.path)
-                    refreshOrphans()
+                    refreshOrphans(force = true)
                 }
             }
         }
@@ -562,7 +590,7 @@ class SessionListPanel(
             if (!ok) {
                 ApplicationManager.getApplication().invokeLater {
                     Messages.showErrorDialog(project, "Failed to remove worktree:\n${output.take(400)}", "Delete Failed")
-                    refreshOrphans()
+                    refreshOrphans(force = true)
                 }
                 return@submit
             }
@@ -573,7 +601,7 @@ class SessionListPanel(
             ApplicationManager.getApplication().invokeLater {
                 if (branchNote != null) Messages.showInfoMessage(project, branchNote, "Worktree Deleted")
                 refreshVfs(orphan.path)
-                refreshOrphans()
+                refreshOrphans(force = true)
             }
         }
     }
@@ -600,7 +628,7 @@ class SessionListPanel(
                         ApplicationManager.getApplication().invokeLater {
                             if (!ok) Messages.showErrorDialog(project, "Failed to delete directory:\n$msg", "Delete Failed")
                             refreshVfs(orphan.path)
-                            refreshOrphans()
+                            refreshOrphans(force = true)
                         }
                     }
                 }
@@ -653,6 +681,9 @@ class SessionListPanel(
     private companion object {
         /** Model index of the Git column in worktree mode: status, Name, Worktree, Git, … */
         const val GIT_COLUMN_MODEL_INDEX = 3
+
+        /** Floor between orphaned-worktree scans driven by session-list changes. */
+        const val ORPHAN_SWEEP_MIN_MS = 15_000L
     }
 
     private data class ActionMeta(
