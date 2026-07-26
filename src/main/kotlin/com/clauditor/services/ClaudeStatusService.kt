@@ -293,14 +293,6 @@ class ClaudeStatusService(private val project: Project) : Disposable {
                 if (Files.exists(statusFile)) {
                     val json = Files.readString(statusFile)
                     val status = parseStatus(json)
-                    // PORTAL PROBE (Step 1): does the statusline's own session_id diverge
-                    // from the key this file was registered under? If so, Claude switched
-                    // the terminal's active session in place and our status file is still
-                    // updating with the new session's data.
-                    val reported = status?.reportedSessionId
-                    if (reported != null && reported != sessionId) {
-                        log.info("Clauditor[${project.name}]: PORTAL DETECTED — monitoring key=$sessionId reported session_id=$reported (statusFile=$statusFile)")
-                    }
                     if (status != null && status != currentStatus[sessionId]) {
                         currentStatus[sessionId] = status
                         log.info("Clauditor[${project.name}]: poll — status changed for $sessionId, firing ${listeners.size} listener(s)")
