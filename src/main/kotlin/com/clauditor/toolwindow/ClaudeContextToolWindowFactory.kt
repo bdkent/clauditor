@@ -10,11 +10,20 @@ import com.intellij.ui.content.ContentFactory
 class ClaudeContextToolWindowFactory : ToolWindowFactory, DumbAware {
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val panel = ClaudeContextPanel(project)
-        val content = ContentFactory.getInstance().createContent(panel, "", false)
-        content.icon = IconLoader.getIcon("/icons/context.svg", ClaudeContextToolWindowFactory::class.java)
-        content.isCloseable = false
-        toolWindow.contentManager.addContent(content)
+        val icon = IconLoader.getIcon("/icons/context.svg", ClaudeContextToolWindowFactory::class.java)
+
+        val contextPanel = ClaudeContextPanel(project)
+        val contextContent = ContentFactory.getInstance().createContent(contextPanel, "Context", false)
+        contextContent.icon = icon
+        contextContent.isCloseable = false
+        toolWindow.contentManager.addContent(contextContent)
+
+        val scratchpadPanel = ClaudeScratchpadPanel(project)
+        val scratchpadContent = ContentFactory.getInstance().createContent(scratchpadPanel, "Scratchpad", false)
+        scratchpadContent.icon = icon
+        scratchpadContent.isCloseable = false
+        scratchpadContent.setDisposer(scratchpadPanel)
+        toolWindow.contentManager.addContent(scratchpadContent)
     }
 
     override fun shouldBeAvailable(project: Project): Boolean = project.basePath != null

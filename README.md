@@ -86,13 +86,27 @@ The Status tool window tracks your API usage:
 
 ### Context Browser
 
-Browse and insert Claude's configuration from the Context tool window:
+The Context tool window has two tabs.
+
+**Context** — browse and insert Claude's configuration:
 
 - **Rules** — project and personal `.claude/rules/` files
 - **Agents** — custom agent definitions
 - **Skills** — slash command skills with metadata
 - **Memory** — auto-memory files from `~/.claude/projects/`
 - Double-click to open in editor, or insert directly into a running session
+
+**Scratchpad** — browse the working files Claude writes during a session.
+
+Claude Code gives each session a private scratchpad directory for temporary files (probes,
+logs, captured output) and is told to use it in place of `/tmp`. It lives under the system
+temp root, keyed by session id, so finding a file Claude mentioned is otherwise tedious.
+
+- Grouped by session, with the focused session's tab first and expanded
+- Files listed newest-first with size and modification time
+- Sessions with an empty scratchpad are hidden; a scratchpad whose session was deleted still appears
+- Right-click to open, copy the path, insert the path into a running session, or reveal in your file manager
+- Only scans while the tab is on screen
 
 <!-- ![Context panel](docs/screenshots/context-panel.png) -->
 
