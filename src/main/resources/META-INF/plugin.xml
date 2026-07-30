@@ -1,10 +1,10 @@
 <idea-plugin>
     <id>com.clauditor</id>
-    <name>Clauditor</name>
+    <name>Clauditor - Claude Code Session Manager</name>
     <vendor url="https://github.com/bdkent/clauditor">bdkent</vendor>
 
     <description><![CDATA[
-    <p>Clauditor brings Claude Code session management directly into your JetBrains IDE.</p>
+    <p>Clauditor manages your Claude Code sessions from inside your JetBrains IDE. Browse, search, resume, and fork sessions; run them in git worktrees; and watch their status live — without leaving the editor or juggling terminal windows.</p>
 
     <p><b>Session Management</b></p>
     <ul>

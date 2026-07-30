@@ -6,6 +6,8 @@ A JetBrains IDE plugin for managing [Claude Code](https://docs.anthropic.com/en/
 
 > Requires IntelliJ 2024.3+ and Claude CLI installed.
 
+Using it? [Leave a review](https://plugins.jetbrains.com/plugin/30981-clauditor/reviews) — it genuinely helps others find the plugin.
+
 ![Clauditor overview](docs/screenshots/overview.png)
 
 ## Features
