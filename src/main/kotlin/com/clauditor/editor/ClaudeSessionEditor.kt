@@ -390,7 +390,7 @@ class ClaudeSessionEditor(
                     val msg = if (file.notifyState == "permission_prompt")
                         "${file.baseName} needs permission" else "${file.baseName} is waiting for input"
                     NotificationGroupManager.getInstance()
-                        .getNotificationGroup("Clauditor")
+                        .getNotificationGroup("Clauditor Session Attention")
                         .createNotification(msg, NotificationType.INFORMATION)
                         .notify(project)
                 }
@@ -675,12 +675,12 @@ class ClaudeSessionEditor(
             isEnabled = false
             toolTipText = "No uncommitted changes"
         }
-        val updateButton = javax.swing.JButton("\u2193 Update").apply {
+        val updateButton = javax.swing.JButton(UPDATE_LABEL).apply {
             isFocusable = false
             isEnabled = false
             toolTipText = "Up to date"
         }
-        val mergeButton = javax.swing.JButton("\u2191 Merge to project").apply {
+        val mergeButton = javax.swing.JButton(MERGE_LABEL).apply {
             isFocusable = false
             isEnabled = false
             toolTipText = "Nothing to merge"
@@ -864,27 +864,48 @@ class ClaudeSessionEditor(
         updateButton.addActionListener {
             val worktreePath = file.workingDir ?: return@addActionListener
             updateButton.isEnabled = false
+            updateButton.text = UPDATE_LABEL + BUSY_SUFFIX
             ApplicationManager.getApplication().executeOnPooledThread {
                 try {
                     val result = execGitWithExitCode(worktreePath, "rebase", currentMainBranch)
                     ApplicationManager.getApplication().invokeLater {
-                        if (result.exitCode == 0) {
-                            showNotification("Rebased $currentWtBranch onto $currentMainBranch", NotificationType.INFORMATION)
-                            com.intellij.openapi.vfs.VirtualFileManager.getInstance().asyncRefresh {}
-                        } else if (result.output.contains("CONFLICT")) {
-                            showNotification(
-                                "Rebase conflicts \u2014 resolve in the terminal with git rebase --continue or --abort",
-                                NotificationType.WARNING
+                        when {
+                            result.exitCode == 0 -> {
+                                showNotification(
+                                    "Rebased $currentWtBranch onto $currentMainBranch",
+                                    NotificationType.INFORMATION
+                                )
+                                com.intellij.openapi.vfs.VirtualFileManager.getInstance().asyncRefresh {}
+                            }
+                            // Conflicts aren't a failed run \u2014 the rebase started and is now
+                            // waiting on the user, so it's a warning with the way out.
+                            result.output.contains("CONFLICT") -> showNotification(
+                                "Resolve in the terminal with git rebase --continue or --abort.",
+                                NotificationType.WARNING,
+                                "Update stopped on conflicts"
                             )
-                        } else {
-                            showNotification("Rebase failed: ${result.output.take(200)}", NotificationType.ERROR)
+                            else -> showNotification(
+                                gitFailureMessage(result),
+                                NotificationType.ERROR,
+                                "Update failed"
+                            )
                         }
                     }
-                    refreshBranchStatus()
                 } catch (e: Exception) {
+                    log.warn("Update (rebase) failed for $worktreePath", e)
                     ApplicationManager.getApplication().invokeLater {
-                        showNotification("Rebase failed: ${e.message}", NotificationType.ERROR)
+                        showNotification(
+                            e.message ?: e.javaClass.simpleName,
+                            NotificationType.ERROR,
+                            "Update failed"
+                        )
                     }
+                } finally {
+                    // Every exit path restores the label and re-syncs button state. Without this
+                    // a failure leaves the button reading "Update\u2026" and disabled until the next
+                    // status tick.
+                    ApplicationManager.getApplication().invokeLater { updateButton.text = UPDATE_LABEL }
+                    refreshBranchStatus()
                 }
             }
         }
@@ -892,25 +913,37 @@ class ClaudeSessionEditor(
         mergeButton.addActionListener {
             if (projectPath == null) return@addActionListener
             mergeButton.isEnabled = false
+            mergeButton.text = MERGE_LABEL + BUSY_SUFFIX
             ApplicationManager.getApplication().executeOnPooledThread {
                 try {
                     val result = execGitWithExitCode(projectPath, "merge", "--ff-only", currentWtBranch)
                     ApplicationManager.getApplication().invokeLater {
                         if (result.exitCode == 0) {
-                            showNotification("Merged $currentWtBranch into $currentMainBranch (fast-forward)", NotificationType.INFORMATION)
+                            showNotification(
+                                "Merged $currentWtBranch into $currentMainBranch (fast-forward)",
+                                NotificationType.INFORMATION
+                            )
                             com.intellij.openapi.vfs.VirtualFileManager.getInstance().asyncRefresh {}
                         } else {
                             showNotification(
-                                "Fast-forward not possible \u2014 update worktree first",
-                                NotificationType.WARNING
+                                gitFailureMessage(result),
+                                NotificationType.ERROR,
+                                "Merge to project failed"
                             )
                         }
                     }
-                    refreshBranchStatus()
                 } catch (e: Exception) {
+                    log.warn("Merge to project failed for $currentWtBranch", e)
                     ApplicationManager.getApplication().invokeLater {
-                        showNotification("Merge failed: ${e.message}", NotificationType.ERROR)
+                        showNotification(
+                            e.message ?: e.javaClass.simpleName,
+                            NotificationType.ERROR,
+                            "Merge to project failed"
+                        )
                     }
+                } finally {
+                    ApplicationManager.getApplication().invokeLater { mergeButton.text = MERGE_LABEL }
+                    refreshBranchStatus()
                 }
             }
         }
@@ -1038,14 +1071,24 @@ class ClaudeSessionEditor(
         if (!alarm.isDisposed) alarm.addRequest(tick, 750)
     }
 
-    private fun showNotification(message: String, type: NotificationType) {
+    /**
+     * Failures route to the sticky group so they stay on screen until dismissed; successes use
+     * the auto-hiding one. A single group can't express that difference, and a failure the user
+     * has to act on must not disappear on a timer.
+     */
+    private fun showNotification(message: String, type: NotificationType, title: String = "") {
+        val group = if (type == NotificationType.ERROR || type == NotificationType.WARNING) {
+            "Clauditor Errors"
+        } else {
+            "Clauditor"
+        }
         NotificationGroupManager.getInstance()
-            .getNotificationGroup("Clauditor")
-            .createNotification(message, type)
+            .getNotificationGroup(group)
+            .createNotification(title, message, type)
             .notify(project)
     }
 
-    private data class GitResult(val exitCode: Int, val output: String)
+    private data class GitResult(val exitCode: Int, val output: String, val timedOut: Boolean = false)
 
     private fun execGit(workDir: String, vararg args: String): String {
         return execGitWithExitCode(workDir, *args).output
@@ -1054,10 +1097,48 @@ class ClaudeSessionEditor(
     private fun execGitWithExitCode(workDir: String, vararg args: String): GitResult {
         val res = com.clauditor.util.ProcessHelper.execWithTimeout(
             command = arrayOf("git", "-C", workDir, *args),
-            timeoutMs = 15_000,
+            timeoutMs = GIT_TIMEOUT_MS,
             extraEnv = mapOf("GIT_OPTIONAL_LOCKS" to "0")
         )
-        return GitResult(res.exitCode, res.output)
+        // timedOut must survive the narrowing: a hung git exits -1 with partial output, which is
+        // otherwise indistinguishable from an ordinary failure and gets reported as one.
+        return GitResult(res.exitCode, res.output, res.timedOut)
+    }
+
+    /**
+     * Build the body of a git failure notification.
+     *
+     * The governing rule is **git's own words are the message**. We only *prepend* an
+     * interpretation when the output matches a pattern we are confident about; anything
+     * unrecognised falls through to git's text rather than to a guess.
+     *
+     * This inverts the previous behaviour, which asserted one specific cause
+     * ("Fast-forward not possible — update worktree first") for every non-zero exit and
+     * discarded the real output — so a dirty tree, a stale `index.lock`, a missing branch, or a
+     * timeout all told the user to go fix something unrelated.
+     */
+    private fun gitFailureMessage(result: GitResult): String {
+        if (result.timedOut) {
+            return "Timed out after ${GIT_TIMEOUT_MS / 1000}s. The repository may be busy, " +
+                "or git may be waiting on credentials."
+        }
+
+        val output = result.output.trim()
+        val hint = GIT_FAILURE_HINTS.firstOrNull { (pattern, _) ->
+            output.contains(pattern, ignoreCase = true)
+        }?.second
+
+        val detail = if (output.isEmpty()) {
+            "git exited with code ${result.exitCode} and produced no output."
+        } else {
+            output.take(GIT_OUTPUT_LIMIT) + if (output.length > GIT_OUTPUT_LIMIT) "…" else ""
+        }
+
+        // Notification content is rendered as HTML, so git's output has to be escaped or angle
+        // brackets in a branch/path silently swallow the rest of the line.
+        val escaped = com.intellij.openapi.util.text.StringUtil.escapeXmlEntities(detail)
+            .replace("\n", "<br/>")
+        return if (hint != null) "$hint<br/><br/>$escaped" else escaped
     }
 
     private data class SessionFileOp(
@@ -1508,6 +1589,41 @@ class ClaudeSessionEditor(
         private val COLOR_GREEN = Color(0x5B, 0xA8, 0x5B)
         private val COLOR_YELLOW = Color(0xD4, 0xA0, 0x1E)
         private val COLOR_RED = Color(0xD4, 0x4B, 0x4B)
+
+        private const val GIT_TIMEOUT_MS = 15_000L
+        private const val GIT_OUTPUT_LIMIT = 400
+
+        // Worktree toolbar button labels. A running operation appends [BUSY_SUFFIX]; the label is
+        // restored in a finally so it can't stick on a failure or an early return.
+        private const val UPDATE_LABEL = "↓ Update"
+        private const val MERGE_LABEL = "↑ Merge to project"
+        private const val BUSY_SUFFIX = "…"
+
+        /**
+         * Substring → interpretation, checked in order, first match wins. Deliberately short:
+         * every entry is a failure mode we can name with confidence. Anything not listed shows
+         * git's raw output, which is a better answer than a confident wrong one.
+         */
+        private val GIT_FAILURE_HINTS: List<Pair<String, String>> = listOf(
+            "not possible to fast-forward" to
+                "The project branch has commits the worktree doesn't. Update the worktree first, then merge.",
+            "would be overwritten by" to
+                "There are uncommitted changes in the target directory. Commit or stash them first.",
+            "cannot rebase: you have unstaged changes" to
+                "The worktree has uncommitted changes. Commit or stash them first.",
+            "please commit your changes or stash them" to
+                "There are uncommitted changes in the target directory. Commit or stash them first.",
+            "already a rebase-merge directory" to
+                "A rebase is already in progress here — finish it with git rebase --continue or --abort.",
+            "index.lock" to
+                "Another git process is running in this repository. Wait for it to finish, or remove a stale index.lock.",
+            "refusing to merge unrelated histories" to
+                "These branches share no history, so git won't merge them.",
+            "not something we can merge" to
+                "That branch doesn't exist from the project's point of view.",
+            "does not point to a valid object" to
+                "The branch reference is broken or was deleted."
+        )
 
         private fun formatTokens(tokens: Long): String = when {
             tokens >= 1_000_000 -> String.format("%.1fM", tokens / 1_000_000.0)

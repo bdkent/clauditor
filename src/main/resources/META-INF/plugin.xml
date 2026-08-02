@@ -116,8 +116,32 @@
             implementation="com.clauditor.editor.ClaudeSessionIconProvider"
         />
 
+        <!--
+            Two groups, because a single displayType cannot serve both cases.
+            Successes are transient confirmations; failures need the user to act, so they must
+            not evaporate on a timer. This was a single group at NONE up to 0.7.30, which meant
+            every notification the plugin raised — operation failures included — went only to
+            the Event Log, a tool window that is hidden by default.
+        -->
         <notificationGroup
             id="Clauditor"
+            displayType="BALLOON"
+        />
+
+        <notificationGroup
+            id="Clauditor Errors"
+            displayType="STICKY_BALLOON"
+        />
+
+        <!--
+            Ambient, not user-initiated: fires whenever a background session wants attention.
+            Kept at NONE so un-muting operation feedback doesn't also start popping balloons
+            nobody asked for — the tab indicator already carries this. It gets its own id so a
+            user who *does* want the balloons can switch it on in
+            Settings > Appearance & Behavior > Notifications.
+        -->
+        <notificationGroup
+            id="Clauditor Session Attention"
             displayType="NONE"
         />
 
