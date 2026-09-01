@@ -381,7 +381,7 @@ class ClaudeStatusService(private val project: Project) : Disposable {
         com.clauditor.util.ClauditorExecutor.submit {
             try {
                 val res = com.clauditor.util.ProcessHelper.execWithTimeout(
-                    command = arrayOf("claude", "--version"),
+                    command = arrayOf(com.clauditor.settings.ClauditorSettings.getInstance().resolveClaudeBinary(), "--version"),
                     timeoutMs = 5_000
                 )
                 if (res.exitCode == 0 && !res.timedOut) {

@@ -221,8 +221,9 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
                 log.info("Clauditor: refreshAuth — claude binary resolved to: $claudePath")
 
                 val res = com.clauditor.util.ProcessHelper.execWithTimeout(
-                    command = arrayOf("claude", "auth", "status"),
-                    timeoutMs = 15_000
+                    command = arrayOf(claudePath, "auth", "status"),
+                    timeoutMs = 15_000,
+                    workDir = project.basePath
                 )
                 val out = res.output
                 val exitCode = res.exitCode
@@ -273,8 +274,11 @@ class ClaudeStatusBarPanel(private val project: Project) : JPanel(), Disposable 
 
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val cmd = if (isLogout) arrayOf("claude", "logout") else arrayOf("claude", "login")
-                val proc = com.clauditor.util.ProcessHelper.builder(*cmd).start()
+                val claudePath = com.clauditor.settings.ClauditorSettings.getInstance().resolveClaudeBinary()
+                val cmd = if (isLogout) arrayOf(claudePath, "logout") else arrayOf(claudePath, "login")
+                val pb = com.clauditor.util.ProcessHelper.builder(*cmd)
+                project.basePath?.let { pb.directory(java.io.File(it)) }
+                val proc = pb.start()
                 proc.waitFor(120, java.util.concurrent.TimeUnit.SECONDS)
                 if (proc.isAlive) proc.destroyForcibly()
             } catch (_: Exception) {}
